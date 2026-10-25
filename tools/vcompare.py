@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """vcompare.py FILE.dwg LAYOUT_INDEX [--oracle DIR] [--out DIR] : render our layout (headless chromium, clean mode) and the AutoCAD oracle plot
 (fixed.pdf), crop both to their ink bbox, report ink precision/recall after 2px dilation, write side-by-side + diff PNG. Local use only."""
-import sys, os, subprocess, json, socket, argparse
+import sys, os, re, subprocess, json, socket, argparse
 import numpy as np
 from PIL import Image, ImageFilter
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,9 +31,9 @@ def run(path, li, oracle_name=None, out='/tmp', width=1600, height=1130, port=No
     info = {}
     async def shoot():
         async with Session(path, width, height) as s:
-            await s.open('clean=1&' + ('fit=full' if os.environ.get('VC_FIT', 'full') == 'full' else 'fit=bounds') + '' + ('' if os.environ.get('VC_NOPLOT') else '&plot=1'), layout=li)
+            await s.open('clean=1&' + ('fit=full' if os.environ.get('VC_FIT', 'full') == 'full' else 'fit=bounds') + '' + ('' if os.environ.get('VC_NOPLOT') else '&plot=1') + ('&noclip=1' if kind == 'fixed' and not os.environ.get('VC_CLIP') else ''), layout=li)
             for _ in range(2000):     # wait until the layout is loaded and the first full render finished
-                if await s.js("typeof STAT!=='undefined' && !raf && typeof lay!=='undefined' && lay!==null && document.getElementById('msg').style.display==='none'"): break
+                if await s.js("document.body.classList.contains('clean') && typeof STAT!=='undefined' && !raf && typeof lay!=='undefined' && lay!==null && document.getElementById('msg').style.display==='none'"): break
                 await asyncio.sleep(0.3)
             await asyncio.sleep(1.0)
             info['name'] = await s.js("meta.layouts[%d].name" % li)
@@ -59,7 +59,7 @@ def run(path, li, oracle_name=None, out='/tmp', width=1600, height=1130, port=No
 def compare(stem, li, lname, png, out, kind='fixed'):
     """score our rendering png against the oracle plot of layout lname (pdf pages are rasterised at 110 dpi)"""
     odir = os.path.join(ORA, stem)
-    pdf = os.environ.get('VC_PDF') or os.path.join(odir, 'plots', '%s.%s.pdf' % (lname.replace(' ', '_'), kind))     # VC_PDF: any plotted PDF as the reference
+    pdf = os.environ.get('VC_PDF') or os.path.join(odir, 'plots', '%s.%s.pdf' % (re.sub(r'[^\w.\-]', '_', lname), kind))     # VC_PDF: any plotted PDF as the reference
     if not os.path.exists(pdf):
         import glob
         c = glob.glob(os.path.join(odir, 'plots', '*.%s.pdf' % kind))

@@ -450,7 +450,7 @@ function renderScene(target, v) {
       ctx.fillStyle = dark ? '#1a1a1a' : '#fff'; const b = lay.bounds;
       ctx.fillRect((b[0] - v.x) * k, (v.y - b[3]) * k, (b[2] - b[0]) * k, (b[3] - b[1]) * k);
     }
-    const clipPage = PLOTMODE && paper;      // plot preview: only the sheet is plotted, items outside the paper edge are cut
+    const clipPage = PLOTMODE && paper && !new URLSearchParams(location.search).get('noclip');      // plot preview: only the sheet is plotted, items outside the paper edge are cut
     if (clipPage) { const b = lay.bounds; ctx.save(); ctx.beginPath(); ctx.rect((b[0] - v.x) * k, (v.y - b[3]) * k, (b[2] - b[0]) * k, (b[3] - b[1]) * k); ctx.clip(); }
     const fg = paper ? dark : bgDark;
     const base = [k, 0, 0, -k, -v.x * k, v.y * k];

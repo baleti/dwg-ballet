@@ -398,7 +398,18 @@ class Doc:
             ix = min(max(gxs), w_[0] + pw) - max(min(gxs), w_[0]); iy = min(max(gys), w_[1] + ph) - max(min(gys), w_[1])
             ox0, oy0 = min(max(gxs), 0 + pw) - max(min(gxs), 0), min(max(gys), 0 + ph) - max(min(gys), 0)
             if ix > 0 and iy > 0 and (ix * iy > 2 * max(ox0, 0) * max(oy0, 0) if ox0 > 0 and oy0 > 0 else True): porg = (w_[0], w_[1])
-        if paper_ok:
+        if paper_ok and lay.get('plot_type') == 1 and lay.get('scale_type') == 0 and gxs and not os.environ.get('DWG_NO_EXTFIT'):
+            # plotted by Extents, scaled to fit: the sheet is the content extents scaled onto the paper (centred), not the paper rectangle at 1:1
+            pw, ph = self.paper(lay)
+            x0, y0, x1, y1 = min(gxs), min(gys), max(gxs), max(gys)
+            cw, ch = max(x1 - x0, 1e-9), max(y1 - y0, 1e-9)
+            k = max(cw / pw, ch / ph)
+            if k > 1.02 or k < 0.98:
+                bw, bh = pw * k, ph * k
+                bounds = [(x0 + x1) / 2 - bw / 2, (y0 + y1) / 2 - bh / 2, (x0 + x1) / 2 + bw / 2, (y0 + y1) / 2 + bh / 2]
+            else:
+                bounds = [porg[0], porg[1], porg[0] + pw, porg[1] + ph]
+        elif paper_ok:
             bounds = [porg[0], porg[1], porg[0] + self.paper(lay)[0], porg[1] + self.paper(lay)[1]]
         elif bxs:
             xs = sorted(bxs); ys = sorted(bys); n = len(xs)
