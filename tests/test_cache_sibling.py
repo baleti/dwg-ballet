@@ -1,7 +1,7 @@
 import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import cache
+from dwgballet import cache
 
 
 class SiblingStampTests(unittest.TestCase):

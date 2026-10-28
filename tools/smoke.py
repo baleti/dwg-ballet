@@ -3,7 +3,7 @@
 import sys, os, json, time, socket, subprocess, urllib.request, gzip
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close()
-p = subprocess.Popen([sys.executable, '-m', 'dwgviewer', sys.argv[1], '--no-browser', '--port', str(port)], cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+p = subprocess.Popen([sys.executable, '-m', 'dwgballet', sys.argv[1], '--no-browser', '--port', str(port)], cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     base = 'http://127.0.0.1:%d' % port
     for _ in range(int(os.environ.get("SMOKE_WAIT", "120")) * 2):

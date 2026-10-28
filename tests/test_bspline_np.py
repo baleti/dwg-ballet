@@ -5,11 +5,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _load():
-    pkg = types.ModuleType('dwgviewer'); pkg.__path__ = [os.path.join(ROOT, 'dwgviewer')]
-    sys.modules.setdefault('dwgviewer', pkg)
+    pkg = types.ModuleType('dwgballet'); pkg.__path__ = [os.path.join(ROOT, 'dwgballet')]
+    sys.modules.setdefault('dwgballet', pkg)
     for name in ('dwgscene', 'dwgmodel', 'dwgent'):
         sys.modules.setdefault(name, types.ModuleType(name))
-    spec = importlib.util.spec_from_file_location('dwgviewer.flat_np_test', os.path.join(ROOT, 'dwgviewer', 'flat.py'))
+    spec = importlib.util.spec_from_file_location('dwgballet.flat_np_test', os.path.join(ROOT, 'dwgballet', 'flat.py'))
     mod = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(mod)

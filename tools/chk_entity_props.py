@@ -2,7 +2,7 @@
 """chk_entity_props.py STEM... : colour index and layer of LINE/ARC/CIRCLE/LWPOLYLINE/INSERT/HATCH/SPLINE entities versus the AutoCAD dump, matched by handle."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 KINDS = ('LINE', 'ARC', 'CIRCLE', 'LWPOLYLINE', 'INSERT', 'HATCH', 'SPLINE')
 for st in sys.argv[1:]:
     dump = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % st)))

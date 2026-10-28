@@ -2,7 +2,7 @@
 """chk_dim_ext.py STEM... : rows of each DIMENSION picture block versus the AutoCAD DIMENSION extents (dump): drawn box inside or equal to the AutoCAD box within 2 %."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 for st in sys.argv[1:]:
     dump = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % st)))
     ext = {int(e['h'], 16): e['ext'] for b in dump['blocks'] for e in b.get('entities', []) if e['t'] == 'DIMENSION' and e.get('ext')}

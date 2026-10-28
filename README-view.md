@@ -1,19 +1,21 @@
-# dwg-viewer
+# dwg-ballet
+
+> Note: dwg-ballet / rvt-ballet are standalone apps; they are separate from the in-app add-ins autocad-ballet and revit-ballet.
 
 Open a .dwg in a browser without AutoCAD: model space and paper-space layouts (sheets) with viewports, layers, lineweights, linetype patterns, hatch patterns, text/mtext, dimensions (their anonymous blocks), blocks and plot styles. Pure Python backend (the sibling parser in this repo), Canvas2D front end, offline.
 
-    bin/dwg-viewer /full/path/FILE.dwg                 # opens the first paper layout with content (else Model)
-    bin/dwg-viewer FILE.dwg --layout Layout1           # by name or index
-    bin/dwg-viewer --prepare A.dwg B.dwg               # demo prep: parse and cache every layout (re-opening is then instant), print READY
-    bin/dwg-viewer FILE.dwg --no-browser --port 8800 --workspace 178
+    bin/dwg-ballet /full/path/FILE.dwg                 # opens the first paper layout with content (else Model)
+    bin/dwg-ballet FILE.dwg --layout Layout1           # by name or index
+    bin/dwg-ballet --prepare A.dwg B.dwg               # demo prep: parse and cache every layout (re-opening is then instant), print READY
+    bin/dwg-ballet FILE.dwg --no-browser --port 8800 --workspace 178
 
 Supported file versions are those the parser reads (AC1015, AC1018, AC1024, AC1027, AC1032; R2007 AC1021 since the parser reads it (pyrender scores 0.98-0.998 on 6 of 7 files); R13/R14 via the experimental dwgr14 reader: model space only, only the entity types it decodes).
 
 Also drawn: leaders (with DSTYLE overrides), multileaders, tables (their *T block), embedded OLE bitmaps, annotative text (the object-context layout of the viewport's annotation scale), wipeouts, image frames, viewport borders, non-rectangular and polygonal viewport clips, per-viewport layer freeze. Not drawn: raster image files (external), non-bitmap OLE objects, ACIS solids, proxy objects without graphics.
 
 ## Pipeline
-parser (dwgmodel/dwgent) -> dwgviewer/flat.py (ByBlock/ByLayer, linetypes in final units, text options, hatch pattern lines, entity handles)
--> dwgviewer/build.py (scene JSON v2 per layout, viewport groups with clip) -> dwgviewer/server.py -> web/app.js.
+parser (dwgmodel/dwgent) -> dwgballet/flat.py (ByBlock/ByLayer, linetypes in final units, text options, hatch pattern lines, entity handles)
+-> dwgballet/build.py (scene JSON v2 per layout, viewport groups with clip) -> dwgballet/server.py -> web/app.js.
 
 ## Interaction (CAD style)
 - Left drag = selection box: left to right is a window (solid blue, only fully enclosed objects), right to left is crossing (dashed green, anything touched). Click picks one object, Shift toggles, Ctrl+A selects all visible, Esc clears; the count is in the status bar. Selected objects are highlighted (halo, dashed outline, grips) also inside paper-space viewports.

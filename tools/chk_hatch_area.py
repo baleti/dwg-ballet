@@ -2,7 +2,7 @@
 """chk_hatch_area.py STEM... : hatch boundary area of our flattened loops (largest loop minus the others, even-odd approximation) versus the AutoCAD dump 'area', per hatch."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build, flat
+from dwgballet import build, flat
 
 
 def poly_area(l):

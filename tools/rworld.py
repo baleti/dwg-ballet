@@ -4,7 +4,7 @@ layer flags (on / frozen / locked / plot), paper-space viewport numbers (centre,
 One summary line per id (ids only, never paths); local use."""
 import sys, os, json, csv, collections
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 ORA = os.path.expanduser('~/dwg-research/oracle-out')
 cen = {}
 for f in ('census.tsv', 'sample.tsv'):

@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>dwg-ballet</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="ballet-ui.css"><style>
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 16px}h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);margin-bottom:20px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px}
+button{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}
+input[type=text]{font:inherit;width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.row{display:flex;gap:8px;align-items:center}.row>input{flex:1}
+ul{list-style:none;margin:0;padding:0}li.it{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;gap:8px;align-items:baseline;overflow:hidden}li.it:hover{background:var(--bg)}
+li.it .n{white-space:nowrap}li.it .d{color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;flex:1}
+li.gone{opacity:.45}.crumbs{color:var(--mut);font-size:12px;margin:6px 0;word-break:break-all}
+#drop{border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;color:var(--mut);margin-top:12px}#drop.on{border-color:var(--acc);color:var(--fg)}
+#err{color:var(--b-error);min-height:20px;margin-top:8px}#brows{max-height:46vh;overflow:auto;margin-top:6px}
+</style></head><body><main>
+<h1>dwg-ballet</h1><div class="sub">Open a .dwg drawing. Nothing is uploaded: the viewer reads the file on this computer.</div>
+<div class="cols">
+ <div class="card"><h2>Open file</h2>
+  <div class="row"><button class="pri" id="browseBtn">Open file...</button><input type="text" id="path" placeholder="or paste a path and press Enter"></div>
+  <div id="drop">drop a file or its path here</div><div id="err"></div>
+  <div id="browser" style="display:none"><div class="crumbs" id="crumbs"></div><div id="brows"></div></div>
+ </div>
+ <div class="card"><h2>Recent files</h2><ul id="recent"></ul><div id="norecent" class="sub" style="display:none">No recent files yet.</div></div>
+</div></main>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmt(n){return n>1e6?(n/1e6).toFixed(1)+' MB':Math.max(1,Math.round(n/1e3))+' KB'}
+async function openPath(p){
+  $('err').textContent='';
+  const r=await fetch('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})});
+  const j=await r.json();
+  if(j.error){$('err').textContent=j.error+': '+p;return}
+  location.href='/';
+}
+async function recent(){
+  const l=await (await fetch('/api/recent')).json(), ul=$('recent'); ul.innerHTML='';
+  $('norecent').style.display=l.length?'none':'';
+  for(const x of l){const li=document.createElement('li');li.className='it'+(x.exists?'':' gone');
+    li.innerHTML='<span class="n">'+esc(x.name)+'</span><span class="d">'+esc(x.dir)+'</span>';
+    li.title=x.path; if(x.exists) li.onclick=()=>openPath(x.path); ul.append(li)}
+}
+async function browse(p){
+  const j=await (await fetch('/api/browse?path='+encodeURIComponent(p||''))).json(), b=$('brows'); $('browser').style.display='';
+  if(j.error){$('err').textContent=j.error;return}
+  $('err').textContent=''; b.innerHTML=''; $('crumbs').textContent=j.path||'Choose a location';
+  const add=(txt,fn,cls)=>{const li=document.createElement('li');li.className='it';li.innerHTML=txt;li.onclick=fn;b.append(li)};
+  if(!j.path){for(const r of j.roots) add('<span class="n">'+esc(r)+'</span>',()=>browse(r));return}
+  add('<span class="n">..</span><span class="d">'+esc(j.parent||'locations')+'</span>',()=>browse(j.parent||''));
+  for(const d of j.dirs) add('<span class="n">'+esc(d)+'/</span>',()=>browse(j.path.replace(/\/$/,'')+'/'+d));
+  for(const f of j.files) add('<span class="n">'+esc(f.name)+'</span><span class="d">'+fmt(f.size)+'</span>',()=>openPath(j.path.replace(/\/$/,'')+'/'+f.name));
+  if(!j.dirs.length&&!j.files.length){const e=document.createElement('li');e.className='it';e.textContent='(no folders or .dwg files)';b.append(e)}
+}
+$('browseBtn').onclick=async()=>{const rs=await (await fetch('/api/browse?path=')).json();browse(rs.roots[0])};
+$('path').onkeydown=e=>{if(e.key==='Enter'&&e.target.value.trim())openPath(e.target.value.trim())};
+const drop=$('drop');
+for(const ev of ['dragenter','dragover']) document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('on')});
+for(const ev of ['dragleave','drop']) document.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('on')});
+document.addEventListener('drop',e=>{
+  const dt=e.dataTransfer; let t=(dt.getData('text/uri-list')||dt.getData('text/plain')||'').split('\n').map(s=>s.trim()).filter(s=>s&&s[0]!=='#')[0];
+  if(t){openPath(t);return}
+  if(dt.files&&dt.files.length) $('err').textContent='Browsers hide the folder of a dropped file: use "Open file..." or drop the path text (from a terminal or file manager).';
+});
+recent();
+</script></body></html>

@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const cv = $('cv'); let ctx = cv.getContext('2d');
 let vpFz0 = {};
-let meta = null, lay = null, layIdx = 0, vis = [], lyOn = [], lyFrz = [], lyLock = [], vpFz = {}, view = {x: 0, y: 0, s: 1}, paper = false, raf = 0, dark = false, fontsReady = false;
+let meta = null, lay = null, layIdx = 0, vis = [], lyOn = [], lyFrz = [], lyLock = [], vpFz = {}, view = {x: 0, y: 0, s: 1}, paper = false, raf = 0, dark = true, fontsReady = false;
 
 // ---------------------------------------------------------------- colours
 const ACI = (() => {
@@ -16,10 +16,17 @@ const ACI = (() => {
   [51, 91, 132, 173, 214, 255].forEach((g, k) => p[250 + k] = [g, g, g]);
   return p;
 })();
+// AutoCAD plots object colours lighter than the screen palette (measured with a 255-solid chart plotted by AutoCAD 2026 to PDF, white paper, no CTB): indices 8..255 as r,g,b
+const PLOT_ACI = [128,128,128,220,220,220,255,0,0,255,127,127,221,0,0,221,110,110,184,0,0,184,92,92,149,0,0,149,74,74,114,0,0,114,57,57,255,63,0,255,159,127,221,55,0,221,138,110,184,46,0,184,115,92,149,37,0,149,93,74,114,28,0,114,71,57,255,127,0,255,191,127,221,110,0,221,165,110,184,92,0,184,138,92,149,74,0,149,112,74,114,57,0,114,86,57,255,191,0,255,223,127,221,165,0,221,193,110,184,138,0,184,161,92,149,112,0,149,131,74,114,86,0,114,100,57,255,255,0,255,255,127,221,221,0,221,221,110,184,184,0,184,184,92,149,149,0,149,149,74,114,114,0,114,114,57,191,255,0,223,255,127,165,221,0,193,221,110,138,184,0,161,184,92,112,149,0,131,149,74,86,114,0,100,114,57,127,255,0,191,255,127,110,221,0,165,221,110,92,184,0,138,184,92,74,149,0,112,149,74,57,114,0,86,114,57,63,255,0,159,255,127,55,221,0,138,221,110,46,184,0,115,184,92,37,149,0,93,149,74,28,114,0,71,114,57,0,255,0,127,255,127,0,221,0,110,221,110,0,184,0,92,184,92,0,149,0,74,149,74,0,114,0,57,114,57,0,255,63,127,255,159,0,221,55,110,221,138,0,184,46,92,184,115,0,149,37,74,149,93,0,114,28,57,114,71,0,255,127,127,255,191,0,221,110,110,221,165,0,184,92,92,184,138,0,149,74,74,149,112,0,114,57,57,114,86,0,255,191,127,255,223,0,221,165,110,221,193,0,184,138,92,184,161,0,149,112,74,149,131,0,114,86,57,114,100,0,255,255,127,255,255,0,221,221,110,221,221,0,184,184,92,184,184,0,149,149,74,149,149,0,114,114,57,114,114,0,191,255,127,223,255,0,165,221,110,193,221,0,138,184,92,161,184,0,112,149,74,131,149,0,86,114,57,100,114,0,127,255,127,191,255,0,110,221,110,165,221,0,92,184,92,138,184,0,74,149,74,112,149,0,57,114,57,86,114,0,63,255,127,159,255,0,55,221,110,138,221,0,46,184,92,115,184,0,37,149,74,93,149,0,28,114,57,71,114,0,0,255,127,127,255,0,0,221,110,110,221,0,0,184,92,92,184,0,0,149,74,74,149,0,0,114,57,57,114,63,0,255,159,127,255,55,0,221,138,110,221,46,0,184,115,92,184,37,0,149,93,74,149,28,0,114,71,57,114,127,0,255,191,127,255,110,0,221,165,110,221,92,0,184,138,92,184,74,0,149,112,74,149,57,0,114,86,57,114,191,0,255,223,127,255,165,0,221,193,110,221,138,0,184,161,92,184,112,0,149,131,74,149,86,0,114,100,57,114,255,0,255,255,127,255,221,0,221,221,110,221,184,0,184,184,92,184,149,0,149,149,74,149,114,0,114,114,57,114,255,0,191,255,127,223,221,0,165,221,110,193,184,0,138,184,92,161,149,0,112,149,74,131,114,0,86,114,57,100,255,0,127,255,127,191,221,0,110,221,110,165,184,0,92,184,92,138,149,0,74,149,74,112,114,0,57,114,57,86,255,0,63,255,127,159,221,0,55,221,110,138,184,0,46,184,92,115,149,0,37,149,74,93,114,0,28,114,57,71,84,84,84,118,118,118,152,152,152,186,186,186,219,219,219,250,250,250];
+if (new URLSearchParams(location.search).get('plot') && !new URLSearchParams(location.search).get('screenaci')) for (let i = 8; i < 256; i++) ACI[i] = [PLOT_ACI[(i - 8) * 3], PLOT_ACI[(i - 8) * 3 + 1], PLOT_ACI[(i - 8) * 3 + 2]];
 const colCache = new Map(); let MONO = false;
 let CTB = null; const OVR = {};   // layer index -> css colour override (control panel)
 function rc(p, bgDark) { return OVR[p[1]] || css(p[2], bgDark); }
  const PLOTMODE = !!new URLSearchParams(location.search).get('plot');
+const NOHAIR = new URLSearchParams(location.search).get('hair') === '0';     // plot preview: 0.00 mm pens print as one pixel of light grey (hair=0 restores the 0.18 mm floor)
+const HAIRA = parseFloat(new URLSearchParams(location.search).get('hairA') || '0.5');
+const VPBORDER = new URLSearchParams(location.search).get('vpborder') !== '0';     // plot the frames of viewports on plottable layers whatever the layout flag says (AutoCAD does; vpborder=0 honours the flag, see VIEW-QA)
+const LWU = !!new URLSearchParams(location.search).get('lwu');     // plot preview: lwK is drawing units per plotted mm (Model with a known plot scale)
 function css(c, bgDark) {
   if (CTB && !Array.isArray(c)) { const e = CTB[c]; if (e && e[0]) { return 'rgb(' + e[0].join() + ')'; } }
   else if (CTB && Array.isArray(c) && CTB.mono) return '#000';
@@ -80,7 +87,7 @@ function parseMtext(src) {
         const body = s.slice(i + 1, e); flush();
         if (n === 'p') { const m = body.match(/q([lcrjd])/); if (m) { curAl = m[1]; curEx = true; lines[lines.length - 1].al = curAl; lines[lines.length - 1].ex = true; } }
         else if (n === 'f' || n === 'F') { const parts = body.split('|'); st.font = parts[0]; st.b = parts.some(x => x === 'b1') ? 1 : st.b; st.i = parts.some(x => x === 'i1') ? 1 : st.i; }
-        else if (n === 'H' || n === 'h') { st.h = body.endsWith('x') ? parseFloat(body) : parseFloat(body) / (st.baseH || 1); st.hAbs = body.endsWith('x') ? 0 : parseFloat(body); }
+        else if (n === 'H' || n === 'h') { st.h = body.endsWith('x') ? (st.h || 1) * parseFloat(body) : parseFloat(body) / (st.baseH || 1);     /* relative heights multiply the current one: \H0.16667x;...\H5.9999x; is 1 x (AC1032_cf526a0ccf: 6 x gave giant overlapping text) */ st.hAbs = body.endsWith('x') ? 0 : parseFloat(body); }
         else if (n === 'C') st.col = +body; else if (n === 'c') { const v = +body; st.col = [v & 255, (v >> 8) & 255, (v >> 16) & 255]; }
         else if (n === 'W' || n === 'w') st.w = parseFloat(body);
         i = e;
@@ -199,7 +206,7 @@ function drawText(p, k, bgDark, F) {
     const boxW = o.mt ? (wrapW || (ln.ex && oW > 0 ? oW : maxW)) : 0;   // an explicit paragraph alignment (\\pxql) lays the text out in the box width (measured on AC1027_13: 'PLOT 2xx' starts at ins - width/2, not centred)
     if (o.mt) { // block anchored by hj: left: x0 = 0 ; center: block centred; right: right edge
       const blockLeft = hj === 0 ? 0 : hj === 1 ? -boxW / 2 : -boxW;
-      x = blockLeft + (ln.al === 'r' ? boxW - w : ln.al === 'c' ? (boxW - w) / 2 : 0);
+      const al = ln.ex ? ln.al : (o.pa || ln.al); x = blockLeft + (al === 'r' ? boxW - w : al === 'c' ? (boxW - w) / 2 : 0);     // o.pa: justification of the whole text (leader notes), per paragraph codes win
     } else x = hj === 0 ? 0 : hj === 1 ? -w / 2 : -w;
     const yb = -(y0 - li * ls);     // y down
     let cx = x;
@@ -301,11 +308,21 @@ function drawHatch(p, k, bgDark, vb, sc = 1) {
   // too dense on screen -> average tint
   let dense = false;
   for (const ln of lines) { const d = Math.abs(ln[3] * Math.sin(ln[0]) * -1 + ln[4] * Math.cos(ln[0])); if (d * k < 2.2) { dense = true; break; } }
-  if (dense) { hatchPath(p[3]); ctx.globalAlpha = 0.35; ctx.fill('evenodd'); ctx.globalAlpha = 1; return; }
+  if (dense) {   // sub-pixel pattern: tint with the ink coverage the lines would give (line width over row spacing, times the dash duty), not a fixed grey
+    const wpx = Math.max(1, (paper || sc !== 1) && lwOnNow() && info.w ? info.w * +$('lwK').value / (lay.pu || 1) / sc * k : 1);
+    let cov = 0;
+    for (const ln of lines) {
+      const d = Math.abs(ln[3] * Math.sin(ln[0]) * -1 + ln[4] * Math.cos(ln[0])) * k;
+      let duty = 1; const dd = ln[5];
+      if (dd && dd.length) { let on = 0, per = 0; for (const v of dd) { per += Math.abs(v); if (v > 0) on += v; } if (per > 0) duty = Math.max(on / per, 0.02); }
+      cov += d > 1e-9 ? Math.min(1, wpx / d) * duty : 0;
+    }
+    hatchPath(p[3]); ctx.globalAlpha = Math.min(0.9, Math.max(0.08, cov)); ctx.fill('evenodd'); ctx.globalAlpha = 1; return;
+  }
   ctx.save();
   hatchPath(p[3]); ctx.clip('evenodd');
   ctx.strokeStyle = rc(p, bgDark);
-  ctx.lineWidth = Math.max(1 / k, (paper || sc !== 1) && lwOnNow() && info.w ? info.w * +$('lwK').value / sc : 0);   // pattern lines take the hatch lineweight (paper mm) on sheets
+  ctx.lineWidth = Math.max(1 / k, (paper || sc !== 1) && lwOnNow() && info.w ? info.w * +$('lwK').value / (lay.pu || 1) / sc : 0);   // pattern lines take the hatch lineweight (paper mm) on sheets
   const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   ctx.beginPath();
   let budget = 6000;
@@ -385,19 +402,24 @@ function drawChunk(all, from, to, k, vb, bgDark, lwOn, F, frozen) {
     ctx.globalAlpha = 1;
   }
   ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
-  const K = +$('lwK').value;
+  const K = +$('lwK').value / (lay.pu || 1);
   for (const p of rows) {
     if (p[0] !== 'l' || skip(p) || !$('oLines').checked) continue;
+    const isVpb = PLOTMODE && lay.vpb && p[8] !== undefined && lay.vpb.includes(p[8]);
+    if (isVpb && !VPBORDER && !lay.pvb) continue;     // the plot setting 'plot viewport borders' is off (it is off in every sample layout, yet AutoCAD plots the frames of viewports on plottable layers: 73 of 81 measured; vpborder=0 hides them again)
     const b = p.bb; if (b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]) continue;
     if ((b[2] - b[0] + b[3] - b[1]) * kk < 0.3) continue;   // sub-pixel paths
     if (p[3] < 0 && (PLOTMODE || CTB)) continue;   // image placeholder
     const f = p[5];
     ctx.globalAlpha = lyAlpha(p[1]) * entAlpha(p);
     ctx.strokeStyle = rc(p, bgDark);
-    let mm = lwOn ? Math.max(p[3], 0.18) * K : 0;
+    let mm = lwOn ? (PLOTMODE && p[3] > 0 ? p[3] : (isVpb || (PLOTMODE && p[3] === 0 && !NOHAIR)) ? 0 : Math.max(p[3], 0.18)) * K : 0;     // viewport frames print as zero-width hairlines     // plot preview: the real pen width (a 0.05 mm pen prints faint), screen: floor of 0.18 mm
     if (CTB && lwOn && !Array.isArray(p[2]) && CTB[p[2]] && CTB[p[2]][1] != null) mm = CTB[p[2]][1] * K;
     // paper space and viewport content: lineweight in paper mm; model space: display-only pixel width
-    ctx.lineWidth = (paper || F) ? Math.max((mm || 0) / sc, px) : Math.max((mm ? mm * 3.78 * 0.5 : 1) * px, px);
+    const plotModel = PLOTMODE && LWU && !paper && !F;     // lwu=1 (plot preview of Model with a known plot scale): the pen is a real width, lwK carries the drawing units per plotted mm
+    ctx.lineWidth = (paper || F || plotModel) ? Math.max((mm || 0) / sc, px) : Math.max((mm ? mm * 3.78 * 0.5 : 1) * px, px);
+    if (PLOTMODE && (paper || F || plotModel) && mm > 0 && mm / sc < px) ctx.globalAlpha *= Math.max(0.15, mm / sc / px);   // thinner than a device pixel: the print shows it as a faint line (coverage)
+    if (isVpb || (PLOTMODE && p[3] === 0 && !NOHAIR)) ctx.globalAlpha *= HAIRA;     // a zero-width pen prints as one device pixel of light grey (204 of 255 in the 110 dpi oracle raster)
     if (p[7]) ctx.lineWidth = Math.max(ctx.lineWidth, p[7]);   // polyline constant width (drawing units)
     const da = p[4] ? dashArr(p[4]) : null;
     if (da && da.period * dk * kk > 3) { STAT.dash++; ctx.setLineDash(dk === 1 ? da.a : da.a.map(v => v * dk)); } else ctx.setLineDash([]);
@@ -427,13 +449,13 @@ function drawTexts(rows, k, vb, bgDark, F, frozen) {
 // while the user pans/zooms that bitmap is transformed (text, dashes and hatches are in it, so nothing flickers) and one full render
 // follows when the gesture settles. Fast drawings are simply redrawn in full on every frame.
 let catOff = new Set(), TXK = 1; const ctbNames = new Set();
-function rowOff(p) { if (!catOff.size && !(PLOTMODE || CTB)) return false; const k = lay.kinds && lay.kinds[p[p.length - 1]]; if (k === 'image' && (PLOTMODE || CTB)) return true; return catOff.has(k || (p[0] === 'h' ? 'hatch' : p[0] === 't' ? 'text' : p[0] === 'p' ? 'point' : 'curve')); }
+function rowOff(p) { if (typeof erased !== 'undefined' && erased.size && erased.has(p[p.length - 1])) return true; if (!catOff.size && !(PLOTMODE || CTB)) return false; const k = lay.kinds && lay.kinds[p[p.length - 1]]; if (k === 'image' && (PLOTMODE || CTB)) return true; return catOff.has(k || (p[0] === 'h' ? 'hatch' : p[0] === 't' ? 'text' : p[0] === 'p' ? 'point' : 'curve')); }
 const STAT = {text: 0, dash: 0, rows: 0};
 const SLOW_MS = 28, MARGIN = 0.22;
 let cache = null, interacting = false, settleTimer = 0, lastFullMs = 0, frameLog = [];
 function interact() { interacting = true; clearTimeout(settleTimer); settleTimer = setTimeout(() => { interacting = false; draw(); }, 140); draw(); }
 function draw() { if (!raf) raf = requestAnimationFrame(frame); }
-function bgColor() { return document.body.classList.contains('clean') ? '#fff' : paper ? (dark ? '#333' : '#8a8a8a') : (dark ? '#111' : '#fff'); }
+function bgColor() { return document.body.classList.contains('clean') ? '#fff' : paper ? '#8a8a8a' : (dark ? '#000' : '#fff'); }
 function renderScene(target, v) {
   // draws the whole scene for view v (css-pixel units; y up) into the canvas `target`
   const sctx = ctx, sview = view;
@@ -447,12 +469,12 @@ function renderScene(target, v) {
     const bgDark = dark && !paper;
     const k = v.s * dpr;
     if (paper) {
-      ctx.fillStyle = dark ? '#1a1a1a' : '#fff'; const b = lay.bounds;
+      ctx.fillStyle = '#fff'; const b = lay.bounds;
       ctx.fillRect((b[0] - v.x) * k, (v.y - b[3]) * k, (b[2] - b[0]) * k, (b[3] - b[1]) * k);
     }
     const clipPage = PLOTMODE && paper && !new URLSearchParams(location.search).get('noclip');      // plot preview: only the sheet is plotted, items outside the paper edge are cut
     if (clipPage) { const b = lay.bounds; ctx.save(); ctx.beginPath(); ctx.rect((b[0] - v.x) * k, (v.y - b[3]) * k, (b[2] - b[0]) * k, (b[3] - b[1]) * k); ctx.clip(); }
-    const fg = paper ? dark : bgDark;
+    const fg = paper ? false : bgDark;
     const base = [k, 0, 0, -k, -v.x * k, v.y * k];
     ctx.setTransform(...base);
     const lwOn = $('lwOn').checked;
@@ -568,6 +590,7 @@ async function openLayout(i, win) {
   $('msg').style.display = 'block'; $('msg').textContent = 'loading layout...';
   const r = await fetch('/api/layout/' + i + (new URLSearchParams(location.search).get('twist') === '0' || !$('twist').checked ? '?twist=0' : '')); lay = await r.json();
   paper = !!lay.paper;
+  if (typeof applyMoves === 'function') applyMoves(lay);      // moves of this session (cmdline.js)
   prepRows(lay.prims); prepRows(lay.mprims);
   const LKS = (typeof LinkState !== 'undefined') ? LinkState.decode(location.search) : {vpFrozen: {}, anno: {}};
   const lidx = new Map(meta.layers.map((l, j) => [l.n, j]));

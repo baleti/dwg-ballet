@@ -8,10 +8,10 @@ import dwgbits as B
 import dwgobj
 
 ENTITY_TYPES = {36: 'SPLINE', 44: 'MTEXT', 1: 'TEXT', 2: 'ATTRIB', 3: 'ATTDEF', 4: 'BLOCK', 5: 'ENDBLK', 6: 'SEQEND', 7: 'INSERT', 8: 'MINSERT', 10: 'VERTEX2D', 11: 'VERTEX3D', 12: 'VERTEX_MESH', 13: 'VERTEX_PFACE', 14: 'VERTEX_PFACE_FACE', 15: 'POLYLINE2D', 16: 'POLYLINE3D', 29: 'POLYLINE_PFACE', 30: 'POLYLINE_MESH',
-                17: 'ARC', 18: 'CIRCLE', 19: 'LINE', 27: 'POINT', 28: '3DFACE', 31: 'SOLID', 35: 'ELLIPSE', 45: 'LEADER', 40: 'RAY', 41: 'XLINE'}
+                17: 'ARC', 18: 'CIRCLE', 19: 'LINE', 27: 'POINT', 28: '3DFACE', 31: 'SOLID', 35: 'ELLIPSE', 45: 'LEADER', 40: 'RAY', 41: 'XLINE', 37: 'REGION', 38: '3DSOLID', 39: 'BODY'}
 CLASS_KINDS = {}  # class number -> kind, filled from the class table by Model14
-DECODABLE_TYPES = (1, 2, 3, 6, 7, 10, 11, 12, 13, 14, 15, 16, 29, 30, 17, 18, 19, 27, 28, 31, 35, 36, 40, 41, 44, 45) + tuple(range(500, 600))
-DECODABLE = ('LINE', 'CIRCLE', 'ARC', 'POINT', 'SOLID', 'TEXT', 'INSERT', 'MTEXT', 'ATTRIB', 'ATTDEF', 'POLYLINE2D', 'VERTEX2D', 'POLYLINE3D', 'VERTEX3D', 'POLYLINE_PFACE', 'POLYLINE_MESH', 'VERTEX_MESH', 'VERTEX_PFACE', 'VERTEX_PFACE_FACE', 'SEQEND', 'LWPOLYLINE', '3DFACE', 'SPLINE', 'HATCH', 'ELLIPSE', 'RAY', 'XLINE', 'LEADER')
+DECODABLE_TYPES = (37, 38, 39, 1, 2, 3, 6, 7, 10, 11, 12, 13, 14, 15, 16, 29, 30, 17, 18, 19, 27, 28, 31, 35, 36, 40, 41, 44, 45) + tuple(range(500, 600))
+DECODABLE = ('LINE', 'CIRCLE', 'ARC', 'POINT', 'SOLID', 'TEXT', 'INSERT', 'MTEXT', 'ATTRIB', 'ATTDEF', 'POLYLINE2D', 'VERTEX2D', 'ACAD_PROXY_ENTITY', 'POLYLINE3D', 'VERTEX3D', 'POLYLINE_PFACE', 'POLYLINE_MESH', 'VERTEX_MESH', 'VERTEX_PFACE', 'VERTEX_PFACE_FACE', 'SEQEND', 'LWPOLYLINE', '3DFACE', 'SPLINE', 'HATCH', 'ELLIPSE', 'RAY', 'XLINE', 'LEADER', 'REGION', '3DSOLID', 'BODY')
 TABLE_TYPES = {51: 'LAYER', 49: 'BLOCK_HEADER', 53: 'STYLE', 57: 'LTYPE'}
 
 
@@ -23,7 +23,9 @@ def load(buf):
     d = dwgobj.load_r2000(buf)
     objs = {}
     for h, o in d['objects'].items():
-        x = Obj14(); x.handle = h; x.type = o.type; x.raw = o.raw; x.ver = 'AC1014'
+        raw = o.raw
+        if len(raw) > 4 and raw[1] & 0x80: raw = b'\0\0' + raw[4:]  # modular short size > 32767: four size bytes, the rest of the reader expects two
+        x = Obj14(); x.handle = h; x.type = o.type; x.raw = raw; x.ver = 'AC1014'
         objs[h] = x
     return dict(version='AC1014', objects=objs, raw=d)
 
@@ -57,6 +59,9 @@ def block_header(o):
     vals = [v for c, v in hs]
     if len(vals) >= 4:
         out.update(block=vals[-4], first=vals[-3], last=vals[-2], endblk=vals[-1])
+        M = (1 << 64) - 1
+        if out['first'] > M or out['block'] > M:  # name area misparsed (146 of 453 headers in AC1014_49): the handle list starts early and glues bytes together; the low 64 bits are the real first handle and the BLOCK entity precedes it
+            out['first'] &= M; out['block'] = out['first'] - 1
     return out
 
 
@@ -72,6 +77,28 @@ def _start(o, shift=0):
     r.BB(); r.BL(); r.B(); r.B()
     col = r.BS(); r.BD(); r.BS()
     return r, col
+
+
+def dim_fields(o):
+    """DIMENSION fields (R13/R14): extrusion 3BD, text midpoint 2RD, elevation BD, 8 flag bits, text override (BS length + bytes), text rotation BD, horizontal direction BD,
+    insertion scale 3BD, insertion rotation BD, then 12 (2RD) and, for linear/aligned dimensions, 13, 14, 10 (3BD each). Text override 422 of 422 and text midpoint
+    equal to AutoCAD's DXF (chk_dimtext_r14.py)."""
+    d = dict(user_text='')
+    try:
+        r, col = _start(o); r.BD3(); mid = (r.RD(), r.RD()); el = r.BD(); r.p += 8
+        n = r.BS()
+        if 0 < n < 512: d['user_text'] = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\x00')
+        elif n != 0: return dict(user_text='')
+        d['text_mid'] = (mid[0], mid[1], el)
+        d['text_rot'] = r.BD(); r.BD(); r.BD3(); r.BD(); r.RD(); r.RD()
+        if o.type in (21, 22): d['pt13'] = r.BD3(); d['pt14'] = r.BD3(); d['pt10'] = r.BD3()
+    except Exception:
+        pass
+    return d
+
+
+def dim_user_text(o):
+    return dim_fields(o)['user_text']
 
 
 def _handles(r, o):
@@ -104,6 +131,17 @@ def decode_entity(o, shift=0):
         e.update(annotation=ann, path=path, pts=pts, end_proj=r.BD3(), ext=r.BD3(), xdir=r.BD3(), block_offset=r.BD3())
     elif kind in ('RAY', 'XLINE'):
         e.update(p=r.BD3(), v=r.BD3())
+    elif kind in ('REGION', '3DSOLID', 'BODY'):  # ACIS SAT text in 4096-byte chunks (BL length each, 0 ends), chars c > 32 stored as 159 - c
+        empty = r.B(); r.B(); ver = r.BS()
+        if ver != 1: raise ValueError('acis version')
+        chunks = []
+        while True:
+            n = r.BL()
+            if not n: break
+            if n > 1 << 20: raise ValueError('acis chunk')
+            chunks.append(bytes((159 - c) if c > 32 else c for c in (r.RC() for _ in range(n))))
+        r.p += 8  # 8 undecoded bits before the handle list (found by locating the layer handle)
+        e.update(acis=('sat', b''.join(chunks).decode('latin1')))
     elif kind == 'POINT':
         e.update(p=r.BD3(), thickness=r.BD(), ext=r.BD3(), angle=r.BD())
     elif kind == 'SOLID':
@@ -198,6 +236,8 @@ def decode_entity(o, shift=0):
     elif kind == 'POLYLINE2D':
         fl = r.BS(); curve = r.BS(); sw = r.BD(); ew = r.BD(); th = r.BD(); el = r.BD(); ex = r.BD3()
         e.update(kind='POLYLINE2D', flags=fl, closed=bool(fl & 1), curve=curve, start_width=sw, end_width=ew, thickness=th, elev=el, ext=ex)
+    elif kind == 'ACAD_PROXY_ENTITY':
+        pass  # no graphics in the samples (GraphicsMetafileType NoMetafile): the entity is only counted, its layer comes from the handle list
     elif kind == 'POLYLINE3D':
         fl1 = r.RC(); fl2 = r.RC()
         e.update(flags=fl2, curve=fl1, closed=bool(fl2 & 1))
@@ -230,6 +270,31 @@ def decode_entity(o, shift=0):
     return e
 
 
+def ltype_info(o):
+    """LTYPE (57): name, description, pattern length, dashes (length, shape code, shape flags); equal to the AutoCAD dump on AC1014_18."""
+    r = B.Bits(o.raw, 16); r.BS(); r.H(); _skip_eed(r); r.p += 34
+    n = r.BS(); name = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0')
+    r.B(); r.BS(); r.B()
+    n = r.BS(); desc = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0')
+    pl = r.BD(); r.RC(); nd = r.RC()
+    dashes = []
+    for _ in range(min(nd, 64)):
+        ln = r.BD(); cs = r.BS(); xo = r.RD(); yo = r.RD(); sc = r.BD(); ro = r.BD(); sf = r.BS()
+        dashes.append(dict(length=ln, shape=cs, flags=sf, offset=(xo, yo), scale=sc, rotation=ro))
+    return dict(name=name, description=desc, pattern_length=pl, dashes=dashes)
+
+
+def style_info(o):
+    """STYLE (53): name, fixed height, width factor, oblique, generation, font file, big font (equal to the AutoCAD dump on AC1014_18)."""
+    r = B.Bits(o.raw, 16); r.BS(); r.H(); _skip_eed(r); r.p += 34
+    n = r.BS(); name = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0')
+    r.B(); r.BS(); r.B()
+    shape = r.B(); vert = r.B(); h = r.BD(); wf = r.BD(); ob = r.BD(); gen = r.RC(); lh = r.BD()
+    n = r.BS(); font = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0')
+    n = r.BS(); big = bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0')
+    return dict(name=name, shape=bool(shape), vertical=bool(vert), height=h, width=wf, oblique=ob, gen=gen, last_height=lh, font=font, bigfont=big)
+
+
 def layer_info(o):
     """LAYER: name, frozen/off/locked flags (bits 4, 5, 7 of the byte before the colour) and ACI colour (BS at +8 bits after the name)."""
     r = B.Bits(o.raw, 16); r.BS(); r.H(); _skip_eed(r); r.p += 34
@@ -248,26 +313,43 @@ class Model14:
         d = load(buf)
         try:
             for c in dwgobj.parse_classes_r2000(d['raw']['classes']) or []:
-                if c['dxf'] in ('LWPOLYLINE', 'HATCH'): CLASS_KINDS[c['num']] = c['dxf']
+                if c['dxf'] in ('LWPOLYLINE', 'HATCH', 'ACAD_PROXY_ENTITY'): CLASS_KINDS[c['num']] = c['dxf']
+                elif c.get('item') == 498 and c['dxf'] not in ('MLINE', 'WIPEOUT', 'IMAGE', 'OLE2FRAME', 'MTEXT', 'LEADER'): CLASS_KINDS[c['num']] = 'ACAD_PROXY_ENTITY'  # third-party entity classes (Tangent TCH_*): AutoCAD lists them as proxy entities
         except Exception:
             pass
         self._buf = buf
+        self._raw = d['raw']
         self.objs = d['objects']
         self.codepage = struct.unpack_from('<H', buf, 0x13)[0]
         self.tables = {'LAYER': {}, 'BLOCK_HEADER': {}, 'STYLE': {}, 'LTYPE': {}}
         self._layers = {}
         self._bh = {}
+        self._ext = {}  # R14 long names: objects with an EXTNAMES xdata pair (stored short name, original name), see _nm
+        for h, o in self.objs.items():
+            if o.type >= 500:
+                raw = bytes(o.raw); k = raw.find(b'EXTNAMES')
+                if k < 0: continue
+                try:
+                    k += 8; n1 = struct.unpack_from('<H', raw, k + 2)[0]; a = raw[k + 5:k + 5 + n1]; k += 5 + n1
+                    n2 = struct.unpack_from('<H', raw, k + 2)[0]; b = raw[k + 5:k + 5 + n2]
+                    if a and b and a.upper() == a and a.lower() != b.lower() or a.lower().replace(b'_', b' ') == b.lower().replace(b'_', b' '): self._ext[a.decode('latin1')] = b.decode('latin1')
+                except Exception:
+                    pass
         for h, o in self.objs.items():
             try:
                 if o.type == 51:
-                    li = layer_info(o); li['name'] = self._dec(li['name'], self.codepage); self.tables['LAYER'][h] = li['name']; self._layers[li['name']] = li
+                    li = layer_info(o); li['name'] = self._nm(self._dec(li['name'], self.codepage))
+                    if li['name'].upper() == 'DEFPOINTS': li['name'] = 'Defpoints'  # R13/R14 store the name in capitals, AutoCAD shows the canonical spelling
+                    self.tables['LAYER'][h] = li['name']; self._layers[li['name']] = li
                 elif o.type == 49:
-                    bi = block_header(o); bi['name'] = self._dec(bi['name'], self.codepage); self._bh[h] = bi; self.tables['BLOCK_HEADER'][h] = bi['name']
+                    bi = block_header(o); bi['name'] = self._nm(self._dec(bi['name'], self.codepage)); self._bh[h] = bi; self.tables['BLOCK_HEADER'][h] = bi['name']
                 elif o.type in (53, 57):
-                    self.tables[TABLE_TYPES[o.type]][h] = self._dec(table_name(o), self.codepage)
+                    self.tables[TABLE_TYPES[o.type]][h] = self._nm(self._dec(table_name(o), self.codepage))
             except Exception:
                 continue
         self.layers = self.tables['LAYER']
+        self._fix_block_headers()
+        self._layer_ltypes()
         # anonymous blocks are stored without a number: make them unique like the other versions
         self.blocks = {}
         for h, n in self.tables['BLOCK_HEADER'].items():
@@ -275,19 +357,70 @@ class Model14:
         self.ranges = sorted((bi['first'], bi['last'], h) for h, bi in self._bh.items() if bi.get('first') and bi.get('last') and not bi['name'].upper().startswith('*MODEL'))
         self.model = next((h for h, n in self.blocks.items() if n.upper() == '*MODEL_SPACE'), None)
 
+    def _layer_ltypes(self):
+        """Layer linetype: the (5, handle) of the layer's handle list that names an LTYPE object; the list is found by scanning the end of the object for a parse that holds one."""
+        ltobj = {h for h, o in self.objs.items() if o.type == 57}
+        self.ltypes()
+        for h, o in self.objs.items():
+            if o.type != 51: continue
+            li = self._layers.get(self.tables['LAYER'].get(h))
+            if li is None: continue
+            try:  # the handle list starts right after the colour: parent, (3, 0), (5, 0), linetype
+                r = B.Bits(o.raw, 16); r.BS(); r.H(); _skip_eed(r); r.p += 34
+                n = r.BS()
+                for _ in range(n): r.RC()
+                r.bits(8); r.BS()
+                hs = [r.H() for _ in range(4)]
+                if hs[3][0] == 5 and hs[3][1] in ltobj:
+                    li['ltype'] = self._lt_by_handle.get(hs[3][1]); continue
+            except Exception:
+                pass
+            total = (len(o.raw) - 2) * 8
+            for s0 in range(total - 12, max(total - 400, 0), -1):
+                r = B.Bits(o.raw, s0); hs = []
+                try:
+                    while r.p < total - 4 and len(hs) < 8: hs.append(r.H())
+                except Exception:
+                    continue
+                lt = next((v for c, v in hs if c == 5 and v in ltobj), None)
+                if lt is not None and len(hs) >= 3:
+                    li['ltype'] = self._lt_by_handle.get(lt); break
+            if li.get('ltype') is None: li['ltype'] = 'CONTINUOUS'  # no linetype reference stored (handle (5, 0)): AutoCAD shows CONTINUOUS
+
+    def _fix_block_headers(self):
+        """Block headers whose handle list is misaligned (long names): the last four handles must be [BLOCK (type 4), first, last, ENDBLK (type 5)] of existing objects; search the handle stream backwards for a start position that parses to such a tail."""
+        for h, bi in self._bh.items():
+            b_, e_ = bi.get('block'), bi.get('endblk')
+            if b_ in self.objs and self.objs[b_].type == 4 and e_ in self.objs and self.objs[e_].type == 5: continue
+            o = self.objs[h]; total = (len(o.raw) - 2) * 8
+            for s0 in range(total - 12, max(total - 700, 0), -1):
+                r = B.Bits(o.raw, s0); hs = []
+                try:
+                    while r.p < total - 4 and len(hs) < 8: hs.append(r.H())
+                except Exception:
+                    continue
+                if len(hs) < 4: continue
+                v = [x for c, x in hs[-4:]]; c4 = [c for c, x in hs[-4:]]
+                if c4 == [3, 4, 4, 3] and v[0] in self.objs and self.objs[v[0]].type == 4 and v[3] in self.objs and self.objs[v[3]].type == 5 and self.objs[v[3]].handle == v[3]:
+                    bi.update(block=v[0], first=v[1], last=v[2], endblk=v[3]); break
+
     def layer_table(self):
         if getattr(self, '_lt', None) is None:
             self._lt = self._layer_table()
         return self._lt
 
     def _layer_table(self):
-        return {n: dict(color=li['color'], off=li['off'], frozen=li['frozen'], ltype=None, lineweight_mm=None, true_color=None) for n, li in self._layers.items()}
+        return {n: dict(name=n, locked=li.get('locked', False), plot=n.upper() != 'DEFPOINTS', color=li['color'], off=li['off'], frozen=li['frozen'], ltype=li.get('ltype'), lineweight_mm=None, true_color=None) for n, li in self._layers.items()}
 
     def effective(self, e):
         lt = self.layer_table().get(e.get('layer'), {})
         col = e['color'][0]
         if col == 256: col = lt.get('color', 7)
-        return dict(color=abs(col) if col else col, rgb=None, lineweight_mm=None, ltype=None, off=lt.get('off', False), frozen=lt.get('frozen', False))
+        self.ltypes()
+        lth = e.get('ltype_handle')
+        ltn = self._lt_by_handle.get(lth) if lth else lt.get('ltype')
+        if ltn and ltn.upper() in ('CONTINUOUS', 'BYLAYER', 'BYBLOCK'): ltn = None
+        return dict(color=abs(col) if col else col, rgb=None, lineweight_mm=None, ltype=ltn, off=lt.get('off', False), frozen=lt.get('frozen', False))
 
     def _tail(self, o):
         """Handle list at the end of any entity object, found by scanning for a parse that ends at the object end and holds (5, layer) as first or second handle."""
@@ -414,6 +547,11 @@ class Model14:
                 self._blk_first = [x[0] for x in self._blk]
             i = bisect.bisect_right(self._blk_first, h) - 1
             if i >= 0 and self._blk[i][0] < h and (not self._blk[i][1] or h < self._blk[i][1]): return self._blk[i][2]
+            if getattr(self, '_b45', None) is None:  # BLOCK (4) / ENDBLK (5) objects in handle order; a bracket whose BLOCK belongs to no block header is a dead copy that AutoCAD does not load
+                self._b45 = sorted((x, self.objs[x].type) for x in self.objs if self.objs[x].type in (4, 5)); self._b45h = [x[0] for x in self._b45]
+                self._known_blocks = {bi['block'] for bi in self._bh.values() if bi.get('block')}
+            k = bisect.bisect_right(self._b45h, h) - 1
+            if k >= 0 and self._b45[k][1] == 4 and self._b45[k][0] not in self._known_blocks: return -1
             if getattr(self, '_rng', None) is None:
                 self._rng = sorted((bi['first'], bi['last'], bh) for bh, bi in self._bh.items() if bi.get('first') and bi.get('last') and bi['first'] <= bi['last'] and not bi['name'].upper().startswith(('*MODEL', '*PAPER')))
                 self._rng_first = [x[0] for x in self._rng]
@@ -465,7 +603,7 @@ class Model14:
         except Exception:
             return None
 
-    def entities(self):
+    def entities(self, only_types=None):
         self._att_owner = {}
         if getattr(self, '_dimused', None) is None: self._dimused = self._dim_blocks()  # AutoCAD drops *D picture blocks that no DIMENSION points at
         for h in sorted(self.objs):
@@ -477,7 +615,7 @@ class Model14:
                 lh = next((v for c, v in hs if c == 5 and v in self.layers), None)
                 owner = self.owner_block(h, hs)
                 yield self.blocks.get(owner), dict(kind='DIM_' + {20: 'ORDINATE', 21: 'LINEAR', 22: 'ALIGNED', 23: 'ANG3PT', 24: 'ANG2LN', 25: 'RADIUS', 26: 'DIAMETER'}[o.type],
-                                                  handle=h, color=(256, None, None), layer=self.layers.get(lh), owner=owner, entmode=2, block_handle=bh, block_ref=self.blocks.get(bh), user_text='')
+                                                  handle=h, color=(256, None, None), layer=self.layers.get(lh), owner=owner, entmode=2, block_handle=bh, block_ref=self.blocks.get(bh), **dim_fields(o))
                 continue
             if o.type not in DECODABLE_TYPES or (o.type >= 500 and o.type not in CLASS_KINDS): continue
             try:
@@ -502,6 +640,7 @@ class Model14:
                     e['handles'] = hs2; lh = next((v for c, v in hs2 if c == 5 and v in self.layers), lh)
             if _bad(e): continue  # undecodable BD code (junk object)
             e['layer'] = self.layers.get(lh)
+            e['ltype_handle'] = next((v for c, v in e['handles'] if c == 5 and v in self.objs and self.objs[v].type == 57), None)
             owner = self.owner_block(h, e['handles'])
             if owner == -1: continue  # orphan / erased entity: its owner handle does not exist
             if owner in self.blocks and self.tables['BLOCK_HEADER'].get(owner, '').upper().startswith('*D') and owner not in self._dimused: continue
@@ -526,7 +665,7 @@ class Model14:
                 bh = next((v for c, v in hs_ if c == 5 and v in self.blocks), None)
                 e['block_handle'] = bh; e['block_ref'] = self.blocks.get(bh)
             if e['kind'] in ('TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF'):
-                e['style'] = None; e['text'] = self._dec(e['text'].rstrip('\x00'), self.codepage)
+                self.styles(); e['style_handle'] = next((v for c, v in e['handles'] if c == 5 and v in self._st_by_handle), None); e['style'] = self._st_by_handle.get(e['style_handle']); e['text'] = self._dec(e['text'].rstrip('\x00'), self.codepage)
                 if e.get('tag'): e['tag'] = self._dec(e['tag'], self.codepage)
             yield self.blocks.get(owner), e
 
@@ -565,16 +704,139 @@ class Model14:
         v = self.decode_viewport(o)
         return {self.layers.get(h) for h in v['frozen_handles']} - {None}
 
+    def _nm(self, name):
+        """R14 tables keep names in capitals with '_' for blanks; the original spelling sits in an EXTNAMES xdata object (AutoCAD shows it)."""
+        return self._ext.get(name, name)
     def draw_order(self): return {}
     def object_strings(self, *a, **k): return []
-    def dimstyles(self): return {}
-    def ltypes(self): return {}
-    def styles(self): return {}
+    def dimstyles(self):
+        """DIMSTYLE (69): name and the first real-valued variables (DIMSCALE ... DIMGAP, the same order as the DXF header). The run of doubles follows 126 bits after the name (more when
+        DIMPOST/DIMBLK strings are set), so it is located by scanning for a plausible run (equal to the AutoCAD dump on the files checked, see campaign21/cov)."""
+        if getattr(self, '_dss', None) is None:
+            names = ('DIMSCALE', 'DIMASZ', 'DIMEXO', 'DIMDLI', 'DIMEXE', 'DIMRND', 'DIMDLE', 'DIMTP', 'DIMTM', 'DIMTXT', 'DIMCEN', 'DIMTSZ', 'DIMALTF', 'DIMLFAC', 'DIMTVP', 'DIMTFAC', 'DIMGAP')
+            self._dss = {}
+            for h, o in self.objs.items():
+                if o.type != 69: continue
+                try:
+                    r = B.Bits(o.raw, 16); r.BS(); r.H(); _skip_eed(r); p0 = r.p + 34
+                    name = None
+                    for dl in sorted(range(-32, 33, 8), key=abs):  # the name sits 34 bits after the entity header, a byte further on in some objects: take the first printable one
+                        q = B.Bits(o.raw, p0 + dl)
+                        try:
+                            n = q.BS(); bs = bytes(q.RC() for _ in range(n))
+                        except Exception:
+                            continue
+                        if 0 < n < 64 and all(32 <= c < 127 for c in bs):
+                            name = self._nm(self._dec(bs.decode('latin1'), self.codepage)); base = q.p; break
+                    if name is None:
+                        r.p = p0; n = r.BS()
+                        if n > 255:  # length field misread (objects with extended data): take the leading printable run
+                            raw = bytes(r.RC() for _ in range(64)); k = next((i for i, c in enumerate(raw) if c < 32 or c > 126), 64); name = raw[:k].decode('latin1'); base = r.p - 8 * (64 - k)
+                        else:
+                            name = self._dec(bytes(r.RC() for _ in range(n)).decode('latin1').rstrip('\0'), self.codepage); base = r.p
+                except Exception:
+                    continue
+                d = dict(name=name, handle=h)
+                for s0 in [base + 126] + list(range(base, base + 300)):
+                    try:
+                        q = B.Bits(o.raw, s0); v = [q.BD() for _ in range(17)]
+                    except Exception:
+                        continue
+                    if any(x is None or x != x or abs(x) > 1e7 for x in v): continue
+                    if (v[0] >= 0 if s0 == base + 126 else v[0] > 1e-6) and v[9] > 1e-6 and v[12] > 0 and v[13] > 0 and v[1] >= 0 and v[15] >= 0 and (v[1] == 0 or v[1] > 1e-6):
+                        d.update(zip(names, v)); break
+                self._dss[name] = d
+        return self._dss
+    def ltypes(self):
+        if getattr(self, '_lts', None) is None:
+            self._lts = {}; self._lt_by_handle = {}
+            for h, o in self.objs.items():
+                if o.type == 57:
+                    try:
+                        d = ltype_info(o); d['name'] = self._nm(self._dec(d['name'], self.codepage)); d['handle'] = h
+                        self._lts[d['name']] = d; self._lt_by_handle[h] = d['name']
+                    except Exception:
+                        continue
+        return self._lts
+    def styles(self):
+        if getattr(self, '_sts', None) is None:
+            self._sts = {}; self._st_by_handle = {}
+            for h, o in self.objs.items():
+                if o.type == 53:
+                    try:
+                        d = style_info(o); d['name'] = self._nm(self._dec(d['name'], self.codepage)); d['handle'] = h; d['fixed_height'] = d['height']; d['width_factor'] = d['width']
+                        self._sts[d['name']] = d; self._st_by_handle[h] = d['name']
+                    except Exception:
+                        continue
+        return self._sts
     def classes(self): return []
     def proxy_texts(self): return []
-    def header(self): return {}
+    @staticmethod
+    def _hdr_ok(t):
+        import math
+        try:
+            fl = [t[k] for k in ('LTSCALE', 'TEXTSIZE', 'CELTSCALE', 'CMLSCALE', 'FACETRES')]
+            return (all(isinstance(x, float) and math.isfinite(x) for x in fl) and 1e-3 <= fl[0] <= 1e6 and 1e-3 <= fl[1] <= 1e6 and 1e-3 <= fl[2] <= 1e6 and 1e-3 <= abs(fl[3]) <= 1e4 and 0.01 <= fl[4] <= 10
+                    and all(math.isfinite(c) and abs(c) < 1e12 for k in ('INSBASE', 'EXTMIN', 'EXTMAX', 'LIMMIN', 'LIMMAX') for c in t[k]) and t['LIMMAX'][0] > t['LIMMIN'][0])
+        except Exception:
+            return False
+
+    @staticmethod
+    def _hdr_tail(hv, p):
+        """Variables after LTSCALE (found by walking the documented order and comparing with AutoCAD's DXF HEADER): the 21 BD of LTSCALE..CELTSCALE, MENUNAME, 4 date pairs,
+        CECOLOR, HANDSEED and 5 table handles, paper-space values, then INSBASE, EXTMIN, EXTMAX, LIMMIN, LIMMAX."""
+        q = B.Bits(hv, p); v = {}
+        for k in ('LTSCALE', 'TEXTSIZE', 'TRACEWID', 'SKETCHINC', 'FILLETRAD', 'THICKNESS', 'ANGBASE', 'PDSIZE', 'PLINEWID', 'USERR1', 'USERR2', 'USERR3', 'USERR4', 'USERR5',
+                  'CHAMFERA', 'CHAMFERB', 'CHAMFERC', 'CHAMFERD', 'FACETRES', 'CMLSCALE', 'CELTSCALE'): v[k] = q.BD()
+        n = q.BS(); [q.RC() for _ in range(n)]
+        for k in ('TDCREATE', 'TDUPDATE', 'TDINDWG', 'TDUSRTIMER'): v[k] = (q.BL(), q.BL())
+        v['CECOLOR'] = q.BS(); q.H()
+        for _ in range(5): q.H()
+        q.BD3(); q.BD3(); q.BD3(); v['PLIMMIN'] = (q.RD(), q.RD()); v['PLIMMAX'] = (q.RD(), q.RD())  # PINSBASE, PEXTMIN, PEXTMAX, PLIMMIN, PLIMMAX
+        q.BD(); q.BD3(); q.BD3(); q.BD3(); q.H()  # PELEVATION, PUCSORG / X / Y axis, PUCSNAME
+        v['INSBASE'] = q.BD3(); v['EXTMIN'] = q.BD3(); v['EXTMAX'] = q.BD3(); v['LIMMIN'] = (q.RD(), q.RD()); v['LIMMAX'] = (q.RD(), q.RD())
+        return v
+
+    def header(self):
+        """LTSCALE and TEXTSIZE of the bit-coded header section: the first pair of consecutive full-precision doubles in a plausible range after the fixed prefix (4 BD, 4 TV, 2 BL). The variable order of the section is not decoded; this scan equals AutoCAD's DXF HEADER on 9 of 9 R13/R14 files."""
+        if getattr(self, '_hdr', None) is None:
+            self._hdr = {}
+            try:
+                import math
+                hv = self._raw['hdrvars']
+                r = B.Bits(hv, 0)
+                for _ in range(4): r.BD()
+                for _ in range(4):
+                    n = r.BS(); [r.RC() for _ in range(n)]
+                r.BL(); r.BL(); p0 = r.p
+                for p in range(p0, min(len(hv) * 8 - 300, p0 + 500)):
+                    try:
+                        if B.Bits(hv, p).bits(2) != 0 or B.Bits(hv, p + 66).bits(2) != 0: continue
+                        a = B.Bits(hv, p + 2).RD(); b = B.Bits(hv, p + 68).RD()
+                    except Exception:
+                        continue
+                    if math.isfinite(a) and math.isfinite(b) and 1e-3 <= a <= 1e6 and 1e-3 <= b <= 1e6:
+                        self._hdr = dict(LTSCALE=a, TEXTSIZE=b)
+                        try:
+                            self._hdr.update(self._hdr_tail(hv, p))
+                        except Exception:
+                            pass
+                        if self._hdr_ok(self._hdr): break
+                        self._hdr = {}
+                        break
+                if not self._hdr:  # pair scan failed or its tail is implausible: walk the tail at every offset (LTSCALE/TEXTSIZE may be short-coded, 1.0 is two bits)
+                    for p in range(p0, min(len(hv) * 8 - 300, p0 + 500)):
+                        try:
+                            t = self._hdr_tail(hv, p)
+                        except Exception:
+                            continue
+                        if self._hdr_ok(t): self._hdr = t; break
+            except Exception:
+                pass
+        return self._hdr
     def layouts(self):
-        out = [dict(name='Model', block=None, block_name=self.blocks.get(self.model, '*MODEL_SPACE'), paper=(0.0, 0.0), paper_size='', viewports=[])]
+        lim = dict(limmin=(0.0, 0.0), limmax=(12.0, 9.0), style_sheet='', plot_origin=(0.0, 0.0))  # R13/R14 files store no layout objects
+        out = [dict(name='Model', block=None, block_name=self.blocks.get(self.model, '*MODEL_SPACE'), paper=(0.0, 0.0), paper_size='', viewports=[], tab_order=0, **lim)]
         vps = collections.defaultdict(list)
         for h in sorted(self.objs):
             o = self.objs[h]
@@ -592,5 +854,14 @@ class Model14:
             paper = (0.0, 0.0); origin = (0.0, 0.0)
             if vh:
                 v = self.decode_viewport(self.objs[vh[0]]); origin = (v['center'][0] - v['width'] / 2, v['center'][1] - v['height'] / 2); paper = (v['width'], v['height'])  # the overall viewport covers the paper
-            out.append(dict(name='Layout%d' % k, block=bh, block_name=self.blocks[bh], paper=paper, origin=origin, paper_size='', viewports=vh))
+            out.append(dict(name='Layout%d' % k, block=bh, block_name=self.blocks[bh], paper=paper, origin=origin, paper_size='', viewports=vh, tab_order=k, **lim))
         return out
+
+
+def _empty_table_api(cls):
+    """R12-R14 files carry none of the newer table objects: the accessors exist and return empty results so consumers need no version checks."""
+    for n in ('mlstyles', 'mleaderstyles', 'scales', 'dictvars', 'layer_overrides', 'layer_states', 'dictionaries'):
+        setattr(cls, n, lambda self: {})
+    for n in ('named_views', 'ucs_list', 'vports'):
+        setattr(cls, n, lambda self: [])
+_empty_table_api(Model14)

@@ -11,7 +11,7 @@ def strip_mtext(s: str) -> str:
     def keep(m):
         return protect(m.group(0))
     s = re.sub(r'%<.*?>%', keep, s, flags=re.S)
-    s = re.sub(r'[A-Za-z]:(?:\\[^\s\\;{}]+)+', keep, s)  # cached field results such as W:\Projects\x are literal paths, not escapes
+    s = re.sub(r'(?<![A-Za-z0-9])[A-Za-z]:(?:\\(?![ACcFfHhQqTtWwp][^;\\\s]*;)[^\s\\;{}]+)+', keep, s)  # cached field results such as W:\Projects\x are literal paths, not escapes
     s = s.replace('\\P', '\n').replace('\\~', ' ')
     s = re.sub(r'\\A\d;?', '', s)  # vertical alignment, the semicolon is optional (\A1{...})
     s = re.sub(r'\\[ACcFfHhQqTtWwpP][^;\\]*;', '', s)

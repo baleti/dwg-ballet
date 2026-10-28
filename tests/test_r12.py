@@ -43,3 +43,30 @@ class R14(unittest.TestCase):
         m = dwgmodel.Model(open(os.path.join(ROOT, 'corpus', stem + '.dwg'), 'rb').read())
         paper = sum(1 for bn, e in m.entities() if bn == '*PAPER_SPACE')
         self.assertLess(abs(paper - 517), 10)
+
+
+class Extraction(unittest.TestCase):
+    def test_dwg2text_old_versions_have_entities(self):
+        import dwg2text
+        n = 0
+        for stem in ('AC1009_54_023f53f0', 'AC1012_46_ab33ce98', 'AC1014_37_310a73af'):
+            f = os.path.join(ROOT, 'corpus', stem + '.dwg')
+            if not os.path.exists(f): continue
+            res, rc = dwg2text.extract(f) if hasattr(dwg2text, 'extract') else (None, None)
+            if res is None: self.skipTest('no extract() API')
+            self.assertGreater(sum(res['entity_counts'].values()), 100, stem)
+            self.assertFalse([e for e in res['errors'] if e.startswith(('entities', 'images'))], stem)
+            n += 1
+        if not n: self.skipTest('corpus missing')
+
+    def test_dwg2text_every_version(self):
+        import dwg2text
+        n = 0
+        for stem in ('AC1015_40_ecfe783b', 'AC1018_42_929ace9f', 'AC1021_01_903df59c', 'AC1024_02_c9e40a32', 'AC1027_16_919d9f20', 'AC1032_00_c95ae221'):
+            f = os.path.join(ROOT, 'corpus', stem + '.dwg')
+            if not os.path.exists(f): continue
+            res, rc = dwg2text.extract(f)
+            self.assertEqual((res['status'], rc), ('ok', 0), stem)
+            self.assertGreater(sum(res['entity_counts'].values()), 10, stem)
+            n += 1
+        if not n: self.skipTest('corpus missing')

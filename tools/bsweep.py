@@ -2,7 +2,7 @@
 """bsweep.py CORPUS_DIR : build every layout of every .dwg (no browser) and report timing/size/errors as TSV. Heavy: run on host1."""
 import sys, os, time, json, glob
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 print('file\tver\tMB\tparse_s\tlayouts\tprims_total\tmax_layout_s\tjson_MB\terrors\tstatus', flush=True)
 for f in sorted(glob.glob(os.path.join(sys.argv[1], '*.dwg'))):
     ver = open(f, 'rb').read(6).decode('latin1')

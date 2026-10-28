@@ -1,10 +1,10 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>dwg-viewer</title>
-<link rel="stylesheet" href="style.css"></head>
+<html><head><meta charset="utf-8"><title>dwg-ballet</title>
+<link rel="stylesheet" href="ballet-ui.css"><link rel="stylesheet" href="style.css"></head>
 <body>
-<div id="top"><button id="lpToggle" title="show / hide the layer table">Layers</button><b id="fname">dwg-viewer</b><span id="tabs"></span><span class="sp"></span>
+<div id="top"><button id="lpToggle" title="show / hide the layer table">Layers</button><a href="/start" id="openOther" title="start page: open another drawing, recent files" style="margin:0 6px;color:inherit">Open...</a><b id="fname">dwg-ballet</b><span id="tabs"></span><span class="sp"></span>
  <label><input type="checkbox" id="lwOn" checked> lineweights</label>
- <label><input type="checkbox" id="dark"> dark bg</label>
+ <label><input type="checkbox" id="dark" checked> dark model bg</label>
  <label title="apply the saved model view twist"><input type="checkbox" id="twist" checked> view twist</label>
  <label>plot style <select id="ctb"><option value="">none (screen)</option></select></label><label class="filebtn" title="preview with a plot style table (.ctb) from your disk"><input type="file" id="ctbFile" accept=".ctb" style="display:none"><button type="button" onclick="$('ctbFile').click()">.ctb...</button></label>
  <label><input type="checkbox" id="oLines" checked> lines</label><label><input type="checkbox" id="oHatch" checked> hatch</label><label><input type="checkbox" id="oText" checked> text</label>
@@ -34,7 +34,8 @@
   <div id="ltable" tabindex="0"></div>
   <div id="lfoot"></div>
  </div>
- <div id="cvwrap"><canvas id="cv" tabindex="0"></canvas><div id="msg"></div><pre id="measOut" style="display:none"></pre><div id="help"><b>dwg-viewer controls</b><br>Ctrl+F: find text (Enter next, Shift+Enter previous)<br>M: measure (click points, snaps to vertices, midpoints and intersections, Shift = no snap, double click / Enter finish, Esc clear)<br>Left drag: select (left to right = window, right to left = crossing)<br>Click: pick, Shift+click: add/remove, Ctrl+A: all, Esc: clear<br>Middle/right drag or Space+drag or H: pan; wheel: zoom; F: fit<br>Double click a viewport: open its model window<br>Layers: click / Shift range / Ctrl toggle rows, buttons act on the selection<br>? : show / hide this help</div><div id="info"></div>
+ <div id="cvwrap"><canvas id="cv" tabindex="0"></canvas><div id="msg"></div><pre id="measOut" style="display:none"></pre><div id="help"><b>dwg-ballet controls</b><br>Ctrl+F: find text (Enter next, Shift+Enter previous)<br>M: measure (click points, snaps to vertices, midpoints and intersections, Shift = no snap, double click / Enter finish, Esc clear)<br>Left drag: select (left to right = window, right to left = crossing)<br>Click: pick, Shift+click: add/remove, Ctrl+A: all, Esc: clear<br>Middle/right drag or Space+drag or H: pan; wheel: zoom; F: fit<br>Double click a viewport: open its model window<br>Layers: click / Shift range / Ctrl toggle rows, buttons act on the selection<br>? : show / hide this help</div><div id="info"></div>
+  <div id="cmdbar" class="b-cmd"><span class="prompt">&gt;</span><input id="cmdIn" placeholder="command (HELP)   : or / to focus" autocomplete="off" spellcheck="false"><span id="cmdOut"></span></div>
   <div id="sbar"><span id="sel">nothing selected</span><span class="sp"></span><span id="coord"></span></div></div>
 </div>
-<script src="linkstate.js"></script><script src="app.js"></script><script src="select.js"></script><script src="measure.js"></script><script src="snap.js"></script><script src="measuretool.js"></script><script src="findtext.js"></script><script src="layercsv.js"></script><script src="layers.js"></script></body></html>
+<script src="linkstate.js"></script><script src="app.js"></script><script src="select.js"></script><script src="measure.js"></script><script src="snap.js"></script><script src="measuretool.js"></script><script src="findtext.js"></script><script src="layercsv.js"></script><script src="layers.js"></script><script src="cmdline.js"></script></body></html>

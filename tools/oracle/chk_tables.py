@@ -14,11 +14,14 @@ def lw_code(s):  # "LineWeight009" -> 9 ; ByLayer etc ignored
     except ValueError: return None
 def tab(x): return x() if callable(x) else x
 LT = {k.lower(): v for k, v in tab(m.ltypes).items()}
-ours = {v['name']: v for v in tab(m.layer_table).values()}
-names_o = {l['name'] for l in d['layers']}
-for n in set(ours) ^ names_o: note('layer', n, 'name', n in ours, n in names_o)
+ours = {v['name'].lower(): v for v in tab(m.layer_table).values()}  # layer names are case-insensitive
+names_o = {l['name'].lower() for l in d['layers']}
+import re
+for n in set(ours) ^ names_o:
+    if n in ours and (re.search(r' @ \d', n) or n.startswith('*adsk')): continue  # layers AutoCAD hides: per-viewport override copies ('name @ n'), constraint layer
+    note('layer', n, 'name', n in ours, n in names_o)
 for l in d['layers']:
-    o = ours.get(l['name'])
+    o = ours.get(l['name'].lower())
     if not o: continue
     res['layer_ok_checked'] += 1
     if o['frozen'] != l['IsFrozen']: note('layer', l['name'], 'frozen', o['frozen'], l['IsFrozen'])
@@ -31,9 +34,11 @@ for l in d['layers']:
     if lw is not None and o['lineweight_mm'] is not None and abs(o['lineweight_mm'] * 100 - lw) > 1: note('layer', l['name'], 'lweight', o['lineweight_mm'], lw)
 ours_s = {k.lower(): v for k, v in tab(m.styles).items()}
 for s in d['textstyles']:
+    if not s['name']: continue  # unnamed shape-file styles (linetype shapes): several share the empty name, which a name-keyed table cannot hold
     o = ours_s.get(s['name'].lower())
     if not o: note('style', s['name'], 'missing', None, None); continue
-    if o['font'].lower() != s['FileName'].lower(): note('style', s['name'], 'font', o['font'], s['FileName'])
+    subst = {('', 'txt.shx'), ('ltypeshp.shx', 'genltshp.shx')}  # AutoCAD fills an empty font with txt.shx and maps the old shape file ltypeshp.shx
+    if o['font'].lower() != s['FileName'].lower() and (o['font'].lower(), s['FileName'].lower()) not in subst: note('style', s['name'], 'font', o['font'], s['FileName'])
     if o['bigfont'].lower() != s['BigFontFileName'].lower(): note('style', s['name'], 'bigfont', o['bigfont'], s['BigFontFileName'])
     if not close(o['width_factor'], s['XScale']): note('style', s['name'], 'width', o['width_factor'], s['XScale'])
     if not close(o['oblique'], s['ObliquingAngle']): note('style', s['name'], 'oblique', o['oblique'], s['ObliquingAngle'])

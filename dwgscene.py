@@ -440,7 +440,8 @@ class Scene:
                         if sg[0] == 'P': pts.append(sg[1])
                         elif sg[0] == 'L': pts.extend([sg[1], sg[2]])
                         elif sg[0] == 'A':
-                            for x, y in arc_points(sg[1][0], sg[1][1], sg[2], sg[3], sg[4], bool(sg[5])): pts.append((x, y))
+                            a0, a1 = (sg[3], sg[4]) if sg[5] else (-sg[3], -sg[4])  # clockwise hatch arcs store negated angles (area check vs AutoCAD, 10 files)
+                            for x, y in arc_points(sg[1][0], sg[1][1], sg[2], a0, a1, bool(sg[5])): pts.append((x, y))
                         elif sg[0] == 'E':
                             c = sg[1]; mj = sg[2]; r = sg[3]; a0, a1 = sg[4], sg[5]
                             if a1 <= a0: a1 += 2 * math.pi

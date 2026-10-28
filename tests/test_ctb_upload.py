@@ -1,7 +1,7 @@
 import os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import ctb
+from dwgballet import ctb
 
 SAMPLE = b"""description="test"
 aci_table{

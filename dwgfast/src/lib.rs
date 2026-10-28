@@ -449,11 +449,57 @@ fn split_objects<'py>(py: Python<'py>, od: &[u8], offs: Vec<usize>, ver: u32) ->
     Ok(out)
 }
 
+/// Candidate bit offsets of TV strings (BS length 2..120 + that many bytes) that can pass the text test of Model.proxy_texts; mode 0 = no byte test,
+/// 1 = GB2312 (ASCII printable or lead A1..F7 + trail A1..FE), 2 = single-byte code page (ASCII letters, digits and -_.:/ +()%# only).
+#[pyfunction]
+fn tv_candidates(raw: &[u8], p0: usize, x: usize, mode: u8) -> Vec<usize> {
+    let n = raw.len() * 8;
+    let bit = |i: usize| -> u32 { ((raw[i >> 3] >> (7 - (i & 7))) & 1) as u32 };
+    let bits = |i: usize, k: usize| -> u32 { let mut v = 0; for j in 0..k { v = v << 1 | bit(i + j); } v };
+    let mut out = Vec::new();
+    let mut p = p0;
+    while p + 16 < x {
+        if p + 18 > n { break; }
+        let code = bits(p, 2);
+        let (l, s) = match code {
+            1 => (bits(p + 2, 8) as usize, p + 10),
+            0 => {
+                let lo = bits(p + 2, 8) as usize;
+                let hi = bits(p + 10, 8);
+                if hi != 0 { p += 1; continue; }
+                (lo, p + 18)
+            }
+            _ => { p += 1; continue; }
+        };
+        if !(2..=120).contains(&l) || p + 8 * l >= x || s + 8 * l > n { p += 1; continue; }
+        let mut b: Vec<u8> = (0..l).map(|k| bits(s + 8 * k, 8) as u8).collect();
+        while b.last() == Some(&0) { b.pop(); }
+        let ok = match mode {
+            0 => b.len() >= 2 || b.is_empty() || true,
+            1 => {
+                let mut i = 0; let mut good = b.len() >= 2;
+                while good && i < b.len() {
+                    let c = b[i];
+                    if (32..127).contains(&c) { i += 1; }
+                    else if (0xA1..=0xF7).contains(&c) && i + 1 < b.len() && (0xA1..=0xFE).contains(&b[i + 1]) { i += 2; }
+                    else { good = false; }
+                }
+                good
+            }
+            _ => b.len() >= 3 && b.iter().all(|&c| c.is_ascii_alphanumeric() || b"-_.:/ +()%#".contains(&c)),
+        };
+        if ok { out.push(p); }
+        p += 1;
+    }
+    out
+}
+
 #[pymodule]
 fn dwgfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_entity, m)?)?;
     m.add_function(wrap_pyfunction!(split_objects, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_handles, m)?)?;
+    m.add_function(wrap_pyfunction!(tv_candidates, m)?)?;
     m.add_function(wrap_pyfunction!(lz77_decompress, m)?)?;
     m.add_function(wrap_pyfunction!(lz2007_decompress, m)?)?;
     Ok(())

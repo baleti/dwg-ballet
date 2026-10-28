@@ -2,7 +2,7 @@
 """chk_vports.py STEM... : compare our decoded paper-space viewports (centre, size, view centre/height, twist, frozen layer set size) with the AutoCAD dump. Matches by centre+width."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 ORA = os.path.expanduser('~/dwg-research/oracle-out'); COR = os.path.expanduser('~/dwg-research/corpus')
 tot = bad = 0
 for stem in sys.argv[1:]:

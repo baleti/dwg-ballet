@@ -8,7 +8,7 @@ sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, 'tools'))
 from PIL import Image, ImageDraw, ImageFont, ImageChops
 Image.MAX_IMAGE_PIXELS = None   # A0 oracle plots are large
 import dwgscene
-from dwgviewer import build
+from dwgballet import build
 
 FONT = {}
 

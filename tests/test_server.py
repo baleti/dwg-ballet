@@ -31,14 +31,14 @@ class FakeDoc:
 
 # These modules are absent in the source-only checkout. Supply them before
 # importing server, so no real parser or OLE decoder is needed.
-build_stub = types.ModuleType('dwgviewer.build')
+build_stub = types.ModuleType('dwgballet.build')
 build_stub.Doc = FakeDoc
-ole_stub = types.ModuleType('dwgviewer.ole')
+ole_stub = types.ModuleType('dwgballet.ole')
 ole_stub.image_png = lambda obj: None
-with patch.dict(sys.modules, {'dwgviewer.build': build_stub,
-                             'dwgviewer.ole': ole_stub}):
-    server = importlib.import_module('dwgviewer.server')
-from dwgviewer import ctb
+with patch.dict(sys.modules, {'dwgballet.build': build_stub,
+                             'dwgballet.ole': ole_stub}):
+    server = importlib.import_module('dwgballet.server')
+from dwgballet import ctb
 
 
 class ServerTests(unittest.IsolatedAsyncioTestCase):
@@ -127,6 +127,12 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         client = await self.client(loading=True)
         await self.assert_json(client, '/api/layout/0', {'loading': True}, status=503)
         self.read_layout.assert_not_called()
+
+    async def test_layout_out_of_range_is_404(self):
+        client = await self.client()
+        await self.assert_json(client, '/api/layout/2', {'error': 'no such layout'}, status=404)
+        await self.assert_json(client, '/api/layout/-1', {'error': 'no such layout'}, status=404)
+        self.doc.layout.assert_not_called()
 
     async def test_layout_json_fallback(self):
         client = await self.client()

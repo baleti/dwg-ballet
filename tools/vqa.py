@@ -25,7 +25,12 @@ for stem in a.stems:
         print(stem, 'no dump', ex); continue
     n = min(len(d.get('layouts', [])), a.max_layouts)
     for li in ([int(x) for x in a.layouts.split(',')] if a.layouts else range(n)):
-        if (stem, li) in done: continue
+        if (stem, li) in done or li >= len(d.get('layouts', [])): continue
+        lname = sorted(d['layouts'], key=lambda l: l.get('TabOrder', 0))[li].get('LayoutName')     # our layout order = tab order (Model first)
+        blk = next((b for b in d.get('blocks', []) if b.get('layout_name') == lname), None)
+        if blk is not None and not blk.get('entities') and lname != 'Model':     # an empty sheet: the oracle plot then shows the model space (not comparable)
+            rec = dict(stem=stem, li=li, version=stem[:6], layout=lname, err='empty layout', empty=True, model=False)
+            open(log, 'a').write(json.dumps(rec) + '\n'); print(stem, li, 'empty layout', flush=True); continue
         cmd = [sys.executable, os.path.join(HERE, 'vcompare.py'), os.path.join(a.src, stem + '.dwg'), str(li), '--out', os.path.join(a.out, a.kind), '--kind', a.kind]
         if a.caps == '1': cmd = ['systemd-run', '--user', '--scope', '-q', '-p', 'MemoryMax=3G', '-p', 'MemorySwapMax=0', '-p', 'CPUQuota=300%', 'nice', '-n', '19'] + cmd
         env = dict(os.environ, **({'VC_FIT': 'bounds'} if a.kind == 'native' else {}))

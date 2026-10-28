@@ -2,7 +2,7 @@
 """chk_text_strings.py STEM... : TEXT/MTEXT strings of the scene versus the AutoCAD dump (matched by insertion point and block), plain text after removing MTEXT codes."""
 import sys, os, re, json, collections
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 
 
 def plain(t):

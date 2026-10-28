@@ -166,7 +166,23 @@ def faces(recs):
             loops.append([p for p in pts if p is not None])
             loop = lp[2] if len(lp) > 2 else -1
         out.append(dict(loops=loops, surface=recs[surf][0] if surf >= 0 else None, approx=approx))
+    tf = body_transform(recs)
+    if tf:
+        for fc in out: fc['loops'] = [[tf(p) for p in lp] for lp in fc['loops']]
     return out
+
+
+def body_transform(recs):
+    """The body transform record as a function on points (rotation rows applied to row vectors, then scale, then translation; the reflect flag negates the
+    result of the rotation) or None when absent or the identity. Verified on REGIONs with translation (3 files) and a 90 degree rotation against AutoCAD's bounding box."""
+    for name, f in recs:
+        if name != 'transform': continue
+        vs = [v for t, v in f if t == 'V']; ds = [v for t, v in f if t == 'd']
+        if len(vs) < 4 or not ds: return None
+        R = vs[:3]; T = vs[3]; sc = ds[0]
+        if R == [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)] and sc == 1.0 and not any(T): return None
+        return lambda p: tuple((p[0] * R[0][i] + p[1] * R[1][i] + p[2] * R[2][i]) * sc + T[i] for i in range(3))
+    return None
 
 
 def wire(recs):
@@ -180,7 +196,17 @@ def wire(recs):
         except Exception:
             continue
         if len(seg) >= 2: out.append(seg)
-    return out
+    tf = body_transform(recs)
+    return [[tf(p) for p in seg] for seg in out] if tf else out
+
+
+def area3d(loop):
+    """Unsigned area of a planar 3D loop (Newell vector area, relative to the first point)."""
+    o = loop[0]; nx = ny = nz = 0.0
+    for i in range(len(loop)):
+        a = [loop[i][k] - o[k] for k in range(3)]; b = [loop[(i + 1) % len(loop)][k] - o[k] for k in range(3)]
+        nx += a[1] * b[2] - a[2] * b[1]; ny += a[2] * b[0] - a[0] * b[2]; nz += a[0] * b[1] - a[1] * b[0]
+    return (nx * nx + ny * ny + nz * nz) ** 0.5 / 2
 
 
 def area(loop):
@@ -203,6 +229,10 @@ def parse_sat(text):
     ver = int(head[0])
     hdr = dict(version=ver, nrec=int(head[1]), nent=int(head[2]), flags=int(head[3]) if len(head) > 3 else 0)
     # line 2: three length-prefixed strings; line 3: units
+    if ver < 200:  # ACIS 1.x text (R13/R14): the records follow the first line directly, no product strings and no units
+        hdr['product'] = []; hdr['units'] = [1.0, 1.0, 1.0]
+        text = lines[0] + '\n' + '\n'.join(lines[1:]); lines = text.split('\n')
+        return _parse_sat_records(hdr, ver, '\n'.join(lines[1:]))
     rest = '\n'.join(lines[1:])
     toks = rest.split()
     i = 0; strs = []
@@ -226,6 +256,10 @@ def parse_sat(text):
     t = body.split(None, 3)
     hdr['units'] = [float(t[0]), float(t[1]), float(t[2])]
     body = t[3] if len(t) > 3 else ''
+    return _parse_sat_records(hdr, ver, body)
+
+
+def _parse_sat_records(hdr, ver, body):
     recs = []
     p = 0; n = len(body)
     while p < n:
@@ -293,7 +327,7 @@ def datastore_sab(buf, info, objs):
     import re, struct, dwgload
     if not info or 'AcDb:AcDsPrototype_1b' not in info.get('sections', {}): return {}
     sec = dwgload.section(buf, info, 'AcDb:AcDsPrototype_1b')
-    ms = [m.start() for m in re.finditer(rb'ASM BinaryFile', sec)]
+    ms = [m.start() for m in re.finditer(rb'(?:ASM|ACIS) BinaryFile', sec)]
     if not ms: return {}
     rows = {}
     for m in re.finditer(re.escape(struct.pack('<II', 0x14, 1)), sec):

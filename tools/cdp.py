@@ -16,7 +16,7 @@ class Session:
     async def __aenter__(self):
         self.sp, cp = free_port(), free_port()
         env = dict(os.environ)
-        self.srv = subprocess.Popen([sys.executable, '-m', 'dwgviewer', self.path, '--no-browser', '--port', str(self.sp)], cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.srv = subprocess.Popen([sys.executable, '-m', 'dwgballet', self.path, '--no-browser', '--port', str(self.sp)], cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         prof = '/tmp/claude-1000/cdp-prof-%d' % cp
         self.ch = subprocess.Popen(['systemd-run', '--user', '--scope', '-q', '-p', 'CPUQuota=300%', 'nice', '-n', '19', 'chromium', '--headless=new', '--no-sandbox', '--disable-gpu', '--user-data-dir=' + prof,
                                     '--remote-debugging-port=%d' % cp, '--window-size=%d,%d' % (self.w, self.h), 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

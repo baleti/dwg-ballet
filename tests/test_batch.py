@@ -1,6 +1,6 @@
 import os, sys, tempfile, time, unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import batch
+from dwgballet import batch
 
 
 def mk(root, rel, size=10):

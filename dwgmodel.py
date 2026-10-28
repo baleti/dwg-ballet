@@ -1,6 +1,7 @@
 """Scene model on top of dwgload: tables (layers, block records, styles, ltypes), entity ownership and layers.
 Works for AC1015 (via dwgobj) and the R2004 family (via dwgload/dwgent)."""
 import re
+import os
 import dwgbits as B
 import dwgload
 import dwgent
@@ -33,11 +34,15 @@ def noent_common(r, ver):
     return eed, nre
 
 
+_UESC = re.compile(r'\\U\+([0-9A-Fa-f]{4})')
+
+
 def decode_tv(s, codepage):
     try:
-        return s.encode('latin1').decode(CODEPAGES.get(codepage, 'cp1252'), 'replace')
+        s = s.encode('latin1').decode(CODEPAGES.get(codepage, 'cp1252'), 'replace')
     except UnicodeEncodeError:
-        return s
+        pass
+    return _UESC.sub(lambda m: chr(int(m.group(1), 16)), s) if '\\U+' in s else s  # R2000/R2004 store non-codepage characters as \U+XXXX
 
 
 def read_name(r, o):
@@ -109,6 +114,7 @@ class Model:
         self._drop_unlisted('BLOCK_HEADER', 48, 49)
         self._drop_unreferenced_dim_blocks()
         self._drop_unreferenced_u_blocks()
+        self._drop_unreferenced_table_blocks()
         self.layers = self.tables.get('LAYER', {})
         # 'name @ scale' layers (annotation scale bookkeeping, EED AnnotativeData) are in the file but AutoCAD never lists them (3 of 3 in 2 dumped files)
         self.internal_layers = {h for h, n in self.layers.items() if re.fullmatch(r'.+ @ [0-9.]+', n)}
@@ -160,6 +166,27 @@ class Model:
                 for c, v in hs:
                     if v in us: keep.add(v)
         self.tables['BLOCK_HEADER'] = {h: n for h, n in tbl.items() if h not in us or h in keep}
+
+    def _drop_unreferenced_table_blocks(self):
+        """AutoCAD drops anonymous *T (table picture) blocks that no ACAD_TABLE entity points at (2dff615e1b: 9 *T records, 7 tables, AutoCAD keeps 7)."""
+        tbl = self.tables.get('BLOCK_HEADER')
+        if not tbl: return
+        ts = {h for h, n in tbl.items() if n.upper().startswith('*T')}
+        if not ts: return
+        try:
+            tab = {c['num'] for c in self.classes() if c['dxf'] == 'ACAD_TABLE'}
+        except Exception:
+            return
+        if not tab: return
+        used = set()
+        for o in self.objs.values():
+            if o.type in tab:
+                try:
+                    for c, v in resolve_handles(o):
+                        if v in ts: used.add(v)
+                except Exception:
+                    return
+        self.tables['BLOCK_HEADER'] = {h: n for h, n in tbl.items() if h not in ts or h in used}
 
     def _drop_unreferenced_dim_blocks(self):
         """AutoCAD drops anonymous *D (dimension picture) blocks that no DIMENSION points at (observed: 44 *D records, 22 dimensions, AutoCAD keeps 22)."""
@@ -239,13 +266,40 @@ CLASS_DECODERS = {'WIPEOUT': dwgent.decode_wipeout, 'IMAGE': dwgent.decode_image
                   'MULTILEADER': dwgent.decode_multileader, 'MLEADER': dwgent.decode_multileader, 'ACAD_TABLE': dwgent.decode_table, **{k: (lambda o, k=k: dwgent.decode_acis(o, k)) for k in ('SURFACE', 'EXTRUDEDSURFACE', 'LOFTEDSURFACE', 'REVOLVEDSURFACE', 'SWEPTSURFACE', 'PLANESURFACE', 'NURBSURFACE')}, 'PDFUNDERLAY': lambda o: dwgent.decode_underlay(o, 'PDFUNDERLAY'), 'DGNUNDERLAY': lambda o: dwgent.decode_underlay(o, 'DGNUNDERLAY'), 'DWFUNDERLAY': lambda o: dwgent.decode_underlay(o, 'DWFUNDERLAY'), 'ARC_DIMENSION': lambda o: dwgent.decode_dim_class(o, 'DIM_ARC')}
 
 
-def _entities(self, only_types=None):
+def _proxy_entity(o):
+    """Entity of a class AutoCAD cannot interpret (third-party object enabler classes such as Tangent TCH_*): AutoCAD lists it as ACAD_PROXY_ENTITY. Only the common entity data is decoded."""
+    r = dwgent.start_reader(o); e = dwgent.common_entity(r, o.ver)
+    e['kind'] = 'ACAD_PROXY_ENTITY'
+    return e
+
+
+_OWNED_ELSEWHERE = ('VERTEX2D', 'VERTEX3D', 'VERTEX_PFACE', 'VERTEX_MESH', 'VERTEX_PFACE_FACE', 'SEQEND', 'ATTRIB')
+
+
+def _owned_set(self, bh):
+    """Handles in the owned-entity list of block record bh (R2004+), or None when the list cannot be trusted (empty)."""
+    c = getattr(self, '_owned', None)
+    if c is None: c = self._owned = {}
+    if bh not in c:
+        try:
+            s = {v for cc, v in resolve_handles(self.objs[bh]) if cc == 3}
+            c[bh] = s or None
+        except Exception:
+            c[bh] = None
+    return c[bh]
+
+
+Model._owned_set = _owned_set
+
+
+def _entities_raw(self, only_types=None):
     """Yield (block_name, entity_dict) for every decodable entity. Owner block: model space for entmode 2, the first paper space for
     entmode 1, else the first handle (owner) of the handle stream."""
     names = self.blocks
     model = next((h for h, n in names.items() if n.lower() == '*model_space'), None)
     paper = sorted(h for h, n in names.items() if n.lower().startswith('*paper_space'))
     clsmap = None
+    proxy_ent = {c['num'] for c in self.classes() if c.get('item') == 498 and c['app'] != 'ObjectDBX Classes' and not c['app'].startswith(('ACAD_', 'ACDB_'))} if any(o.type >= 500 for o in self.objs.values()) else set()
     poly_block = {}
     polys_wait = {h: [] for h, o in self.objs.items() if o.type in (15, 16, 29, 30)}
     for h, o in self.objs.items():
@@ -256,6 +310,7 @@ def _entities(self, only_types=None):
                 try: clsmap = {c['num']: c['dxf'] for c in self.classes()}
                 except Exception: clsmap = {}
             dec = CLASS_DECODERS.get(clsmap.get(o.type))
+            if dec is None and o.type in proxy_ent: dec = _proxy_entity
         if dec is None: continue
         try:
             e = dec(o)
@@ -267,10 +322,18 @@ def _entities(self, only_types=None):
         hs = resolve_handles(o)
         layer = next((v for c, v in hs if c == 5), None)
         if e['entmode'] == 2: owner = model
-        elif e['entmode'] == 1: owner = self.active_paper if getattr(self, 'active_paper', None) is not None else (paper[0] if paper else None)
+        elif e['entmode'] == 1:
+            owner = self.active_paper if getattr(self, 'active_paper', None) is not None else (paper[0] if paper else None)
+            if self.version != 'AC1015' and len(paper) > 1:  # several paper spaces: the entity belongs to the one whose owned list names it
+                for ph in paper:
+                    ol = self._owned_set(ph)
+                    if ol is not None and h in ol: owner = ph; break
         else: owner = hs[0][1] if hs else None
         if e['kind'].startswith('DIM_'):
-            e['block_handle'] = next((v for c, v in hs if v in self.objs and self.objs[v].type == 49), None)
+            cand = [v for c, v in hs if v in self.objs and self.objs[v].type == 49]
+            hard = [v for c, v in hs if c == 5 and v in self.objs and self.objs[v].type == 49]
+            # the picture is the block behind the hard pointer (anonymous *D, or a named block after an xref bind); the soft pointer before it is the owner block
+            e['block_handle'] = next((v for v in hard if (self.blocks.get(v) or '').startswith('*D')), hard[0] if hard else (cand[0] if cand else None))
             e['block_ref'] = self.blocks.get(e['block_handle'])
         if e['kind'] == 'VIEWPORT':
             # frozen layers = the first nfrozen code-4 handles after the entity layer; null and erased layers (objects still in the map but not in the LAYER table) are dropped as AutoCAD does
@@ -282,6 +345,8 @@ def _entities(self, only_types=None):
         if e['kind'] in ('INSERT', 'MINSERT'):
             e['block_handle'] = next((v for c, v in hs[1:] if v in self.objs and self.objs[v].type == 49), None)
             e['block_ref'] = self.blocks.get(e['block_handle'])
+            tn = self.dynamic_block_names().get(e['block_handle'])
+            if tn: e['block_true_name'] = tn  # dynamic block instance: the anonymous *U block carries the real block name in its EED
         if e['kind'] == 'IMAGE':
             if clsmap is None: clsmap = {c['num']: c['dxf'] for c in self.classes()}
             dh = next((v for c, v in hs if v in self.objs and clsmap and clsmap.get(self.objs[v].type) == 'IMAGEDEF'), None)
@@ -313,6 +378,7 @@ def _entities(self, only_types=None):
                 if ob.type == 53 and 'text_style_handle' not in e: e['text_style_handle'] = v; e['text_style'] = self.tables.get('STYLE', {}).get(v)
                 elif ob.type == 57 and 'leader_ltype_handle' not in e: e['leader_ltype_handle'] = v; e['leader_ltype'] = self.tables.get('LTYPE', {}).get(v)
                 elif clsmap.get(ob.type) == 'MLEADERSTYLE' and 'mleaderstyle_handle' not in e: e['mleaderstyle_handle'] = v
+                elif ob.type == 49 and v != owner and 'block_handle' not in e and (e.get('ctx') or {}).get('has_block'): e['block_handle'] = v; e['block_name'] = names.get(v)     # block content of the leader (BLOCK_HEADER in the handle stream)
         if e['kind'] in ('REGION', '3DSOLID', 'BODY', 'SURFACE', 'EXTRUDEDSURFACE', 'LOFTEDSURFACE', 'REVOLVEDSURFACE', 'SWEPTSURFACE', 'PLANESURFACE', 'NURBSURFACE') and e.get('acis') == (None, None):
             if getattr(self, '_dsab', None) is None:
                 import dwgacis
@@ -320,10 +386,16 @@ def _entities(self, only_types=None):
                 except Exception: self._dsab = {}
             if h in self._dsab: e['acis'] = ('sab', self._dsab[h])
         e['handle'] = h
+        if 'annotative' not in e and e.get('eed'):
+            an = dwgent.annotative_flag(e['eed'])
+            if an is not None: e['annotative'] = an
         e['layer'] = self.layers.get(layer)
         e['owner'] = owner
         if owner is not None and owner not in names and owner in self.objs and self.objs[owner].type == 49:
             continue  # entity of an unlisted (orphan / erased) block record
+        if self.version != 'AC1015' and owner in names and e['kind'] not in _OWNED_ELSEWHERE:
+            ol = self._owned_set(owner)
+            if ol is not None and h not in ol: continue  # stale entity: not in its block's owned-handle list (AutoCAD never loads it; 12290 of 18435 lines in one file)
         if e['kind'] in ('VERTEX2D', 'VERTEX3D', 'VERTEX_PFACE', 'VERTEX_MESH', 'VERTEX_PFACE_FACE', 'SEQEND') and e['entmode'] == 0 and owner in polys_wait:
             polys_wait[owner].append(e); continue  # R2004+: vertices and SEQEND are owned by their polyline: emitted into the polyline's block below
         if e['kind'] in ('POLYLINE2D', 'POLYLINE3D', 'POLYLINE_PFACE', 'POLYLINE_MESH'):
@@ -332,6 +404,55 @@ def _entities(self, only_types=None):
     for ph, lst in polys_wait.items():
         if ph in poly_block:
             for e in lst: yield poly_block[ph], e
+
+
+def _dynamic_block_names(self):
+    """{anonymous block handle: dynamic block true name} from the AcDbDynamicBlockTrueName extended data of the block headers (equal to the INSERT block name in AutoCAD's DXF)."""
+    if getattr(self, '_dyn', None) is not None: return self._dyn
+    out = {}
+    appid = {h for h, n in self.tables.get('APPID', {}).items() if n == 'AcDbDynamicBlockTrueName'}
+    if appid:
+        for h in self.blocks:
+            o = self.objs.get(h)
+            if o is None or o.type != 49: continue
+            try:
+                r = dwgent.start_reader(o)
+                while True:
+                    n = r.BS()
+                    if n == 0: break
+                    app = r.H(); data = r.rcs(n)
+                    if app[1] in appid and data and data[0] == 0 and len(data) > 4:
+                        ln = int.from_bytes(data[1:3], 'little')
+                        if self.version in ('AC1021', 'AC1024', 'AC1027', 'AC1032') and len(data) >= 3 + 2 * ln: out[h] = data[3:3 + 2 * ln].decode('utf-16le', 'replace')
+                        else: out[h] = data[4:4 + ln].decode('latin1')
+            except Exception:
+                continue
+    self._dyn = out
+    return out
+
+
+Model.dynamic_block_names = _dynamic_block_names
+_ATAG = re.compile(r'^(.*)_(\d{3})$')
+
+
+def _entities(self, only_types=None):
+    """entities() with AutoCAD's merge of split multiline attribute definitions: ATTDEFs tagged BASE_001, BASE_002 ... whose prompt is BASE become one ATTDEF
+    (tag BASE, texts joined with a blank, as AutoCAD lists them)."""
+    groups = {}
+    for b, e in _entities_raw(self, only_types):
+        if e.get('kind') == 'ATTDEF':
+            m = _ATAG.match(e.get('tag') or '')
+            if m and m.group(1) == e.get('prompt'):
+                g = groups.setdefault((b, m.group(1)), [])
+                g.append((m.group(2), e)); continue
+        yield b, e
+    for (b, base), g in groups.items():
+        if len({x[0] for x in g}) != len(g):  # repeated suffixes are separate attributes with the same tag, not the parts of one multiline attribute
+            for x in g: yield b, x[1]
+            continue
+        g.sort(key=lambda x: x[0])
+        e = dict(g[0][1]); e['tag'] = base; e['text'] = ' '.join(x[1].get('text') or '' for x in g)
+        yield b, e
 
 
 Model.entities = _entities
@@ -373,6 +494,11 @@ Model.draw_order = _draw_order
 
 
 
+# PLOTSETTINGS flag word (DXF group 70): bits 1, 2, 4, 6, 10 and the always-set 5, 7, 9 equal AutoCAD's layout booleans on 111 layouts; bits 0, 3 (never set in the sample) by the DXF documentation
+PLOT_FLAG_BITS = ((0, 'PlotViewportBorders'), (1, 'ShowPlotStyles'), (2, 'PlotCentered'), (3, 'PlotHidden'), (4, 'UseStandardScale'), (5, 'PlotPlotStyles'), (6, 'ScaleLineweights'),
+                  (7, 'PrintLineweights'), (9, 'DrawViewportsFirst'), (10, 'ModelType'))
+
+
 def _layouts(self):
     """Layouts with their paper-space block record and viewport entities (resolved from the handle stream)."""
     out = []
@@ -390,13 +516,41 @@ def _layouts(self):
                 if isinstance(e.get(k), str): e[k] = decode_tv(e[k], self.codepage)
         hs = resolve_handles(o)
         block = next((v for c, v in hs if v in self.objs and self.objs[v].type == 49), None)
-        vps = [v for c, v in hs if v in self.objs and self.objs[v].type == 34]
+        vps = list(dict.fromkeys(v for c, v in hs if v in self.objs and self.objs[v].type == 34))  # the handle list can name a viewport twice
+        if 'plot_flags' in e:
+            f = e['plot_flags']; e['plot_options'] = {n: bool(f >> b & 1) for b, n in PLOT_FLAG_BITS}
         e['handle'] = h
         e['block'] = block
         e['block_name'] = self.blocks.get(block)
+        if len(vps) == 1:  # AutoCAD does not list the default overall viewport of a layout that has no other viewport
+            try:
+                d = dwgent.decode_viewport(self.objs[vps[0]]); pc = d['center']
+                if abs(d['view_center'][0] - pc[0]) < 1e-6 and abs(d['view_center'][1] - pc[1]) < 1e-6 and abs(d['view_height'] - d['height']) < 1e-6 and not e.get('nviewports'): vps = []  # AutoCAD lists a lone default viewport only when the layout's own viewport count says so (22 of 22 layouts)
+            except Exception:
+                pass
+        if self.version == 'AC1015':  # R2000 LAYOUT has no viewport list: AutoCAD lists the viewports owned by the paper-space block
+            vps = self._vp_by_block().get(block, [])
         e['viewports'] = vps
         out.append(e)
     return sorted(out, key=lambda e: e['tab_order'])
+
+
+def _vp_by_block(self):
+    if not hasattr(self, '_vpb'):
+        self._vpb = {}
+        for h, o in self.objs.items():
+            if o.type != 34: continue
+            try:
+                e = dwgent.decode_viewport(o); hs = resolve_handles(o)
+            except Exception:
+                continue
+            if e['entmode'] == 1:
+                paper = sorted(bh for bh, n in self.blocks.items() if (n or '').lower().startswith('*paper_space'))
+                owner = self.active_paper if getattr(self, 'active_paper', None) is not None else (paper[0] if paper else None)
+            elif e['entmode'] == 2: continue
+            else: owner = hs[0][1] if hs else None
+            self._vpb.setdefault(owner, []).append(h)
+    return self._vpb
 
 
 def _header(self):
@@ -408,12 +562,19 @@ def _header(self):
         v['DWGCODEPAGE'] = CODEPAGES.get(self.codepage, 'cp%d' % self.codepage) if self.codepage in CODEPAGES else self.codepage
         for k, tbl in (('CLAYER', self.layers), ('TEXTSTYLE', self.tables.get('STYLE', {})), ('DIMSTYLE', self.tables.get('DIMSTYLE', {})), ('CELTYPE', self.tables.get('LTYPE', {}))):
             hv = v.get(k)
-            if isinstance(hv, tuple) and len(hv) == 2 and hv[1] in tbl: v[k + '_NAME'] = tbl[hv[1]]
+            if isinstance(hv, tuple) and len(hv) == 2: hv = hv[1]
+            if isinstance(hv, int) and hv in tbl: v[k + '_NAME'] = tbl[hv]
         try:  # system variables that live in DICTIONARYVAR objects (CANNOSCALE, MSLTSCALE, ...)
             for k, x in self.dictvars().items():
                 if k.startswith('#') or k in v: continue
                 try: v[k] = float(x) if any(c in x for c in '.') else int(x)
                 except (ValueError, TypeError): v[k] = x
+        except Exception:
+            pass
+        if self.version == 'AC1015' and 'XCLIPFRAME' in v: v['XCLIPFRAME'] = 2  # AutoCAD reports 2 for every R2000 file (11 of 11 with a stored value, 2 of them stored as 0)
+        try:  # AutoCAD reports TEXTSIZE as the last-used height of the current text style
+            st = self.styles().get(v.get('TEXTSTYLE_NAME'))
+            if st and st.get('last_height'): v['TEXTSIZE'] = st['last_height']
         except Exception:
             pass
         self._hdr = v
@@ -422,6 +583,7 @@ def _header(self):
 
 Model.header = _header
 Model.layouts = _layouts
+Model._vp_by_block = _vp_by_block
 
 
 def parse_classes_r2004(cl, ver):
@@ -632,6 +794,18 @@ Model.styles = _styles
 Model.effective = effective
 
 
+def _tv_candidates(raw, p0, x):
+    """Pure Python reference of dwgfast.tv_candidates (mode 0): offsets where a TV header (BS length 2..120) starts."""
+    bs_ = bin(int.from_bytes(raw, 'big') | 1 << (8 * len(raw)))[3:]
+    out = []
+    for p in range(p0, x - 16):
+        if bs_[p] != '0': continue
+        if bs_[p + 1] == '1': L0 = int(bs_[p + 2:p + 10], 2)
+        else: L0 = int(bs_[p + 2:p + 10], 2) if bs_[p + 10:p + 18] == '00000000' else 0
+        if 2 <= L0 <= 120: out.append(p)
+    return out
+
+
 def _proxy_texts(self):
     """Text strings found in the class data of custom proxy objects (e.g. Tangent TCH_* classes, which carry no cached graphics: AutoCAD reports
     GraphicsMetafileType NoMetafile for them). The data is bit packed with TV strings (BS length + code page bytes) at class dependent offsets,
@@ -643,6 +817,14 @@ def _proxy_texts(self):
     cl = {c['num']: c for c in self.classes()}
     cp = 'gb2312' if self.codepage in (38, 39) else CODEPAGES.get(self.codepage, 'cp1252')
     layers = self.layers
+    fast = None
+    if not os.environ.get('DWG_NO_FAST'):
+        try:
+            import dwgfast as fast
+            if not hasattr(fast, 'tv_candidates'): fast = None  # older native build
+        except ImportError:
+            fast = None
+    mode = 1 if cp == 'gb2312' else 2 if (cp in ('ascii', 'cp1252') or cp.startswith(('iso8859', 'cp125'))) else 0  # byte test of tv_candidates (exact subset of the text test below)
     for h, o in self.objs.items():
         c = cl.get(o.type)
         if c is None or o.type < 500 or not (c['proxy'] & 1) or c['dxf'].startswith(('ACDB', 'MATERIAL', 'VISUALSTYLE', 'SCALE', 'TABLESTYLE', 'MLEADERSTYLE')): continue
@@ -655,8 +837,10 @@ def _proxy_texts(self):
         hs = resolve_handles(o)
         lay = layers.get(next((v for cc, v in hs if cc == 5), None))
         seen = []
-        p = p0
-        while p < x - 16:
+        cand = fast.tv_candidates(o.raw, p0, x, mode) if fast else _tv_candidates(o.raw, p0, x)
+        ci = 0
+        while ci < len(cand):
+            p = cand[ci]; ci += 1
             q = B.Bits(o.raw, p)
             try:
                 L = q.BS()
@@ -665,10 +849,10 @@ def _proxy_texts(self):
                     t = bs.decode(cp)
                     ok = len(t) >= 2 and t.isprintable() and all(ch.isascii() or '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef' or '\u2000' <= ch <= '\u206f' for ch in t) and (any('一' <= ch <= '鿿' for ch in t) or (t.isascii() and any(ch.isalnum() for ch in t) and len(t) >= 3 and all(ch.isalnum() or ch in '-_.:/ +()%#' for ch in t)))
                     if ok:
-                        seen.append(t); p = q.p; continue
+                        seen.append(t)
+                        while ci < len(cand) and cand[ci] < q.p: ci += 1
             except Exception:
                 pass
-            p += 1
         for t in seen: out.append((h, c['dxf'], lay, t))
     self._ptx = out
     return out
@@ -757,6 +941,29 @@ def _dictvars(self):
     return out
 
 
+def _mlstyles(self):
+    """MLINE styles {name: dict(description, flags, fill_color, start_angle, end_angle, elements=[dict(offset, color, ltype_index)])} (MLINESTYLE objects, type 73)."""
+    import dwgtab
+    if getattr(self, '_mls', None) is None:
+        out = {}
+        for h, o in self.objs.items():
+            if o.type == 73:
+                try: d = dwgtab.decode_mlstyle(o)
+                except Exception: continue
+                out[d['name']] = d
+        self._mls = out
+    return self._mls
+
+
+def _mleaderstyles(self):
+    """MLEADER styles {handle: dict} (MLEADERSTYLE objects, AC1024+; see dwgtab.decode_mleaderstyle)."""
+    import dwgtab
+    if getattr(self, '_mls2', None) is None: self._mls2 = _by_class(self, 'MLEADERSTYLE', dwgtab.decode_mleaderstyle)
+    return self._mls2
+
+
+Model.mlstyles = _mlstyles
+Model.mleaderstyles = _mleaderstyles
 Model.scales = _scales
 Model.dictvars = _dictvars
 
@@ -796,3 +1003,119 @@ def _layer_states(self):
 
 
 Model.layer_states = _layer_states
+
+
+def _layer_overrides(self):
+    """Per-viewport layer property overrides: {layer handle: {viewport handle: {'color': true colour word, 'ltype': handle, 'lineweight': int, 'transparency': int}}}.
+    Stored in the extension dictionary of the LAYER (owner of a DICTIONARY with ADSK_XREC_LAYER_*_OVR items); each XRECORD holds one {ADSK_LYR_*_OVERRIDE ... } block per
+    viewport: 335 viewport handle, then 420 colour (true colour word) / 343 or 340 linetype handle / 370 lineweight / 440 transparency. Only the colour form is calibrated
+    against AutoCAD's DXF (141 + 174 blocks); the others follow the same pattern."""
+    import dwgtab
+    if getattr(self, '_layovr', None) is not None: return self._layovr
+    out = {}
+    kinds = {420: 'color', 62: 'aci', 343: 'ltype', 340: 'ltype', 370: 'lineweight', 440: 'transparency'}
+    for h, d in self.dictionaries().items():
+        names = [n for n in d if n.startswith('ADSK_XREC_LAYER_') and n.endswith('_OVR')]
+        if not names: continue
+        hs = resolve_handles(self.objs[h])
+        layer = hs[0][1] if hs else None
+        if layer not in self.layers: continue
+        for n in names:
+            o = self.objs.get(d[n])
+            if o is None or o.type != 79: continue
+            try: data = dwgtab.decode_xrecord(o)['data']
+            except Exception: continue
+            vp = None
+            for c, v in data:
+                if c == 335: vp = v; out.setdefault(layer, {}).setdefault(vp, {})
+                elif vp is not None and c in kinds:
+                    out[layer][vp][kinds[c]] = (v & 0xFFFFFFFF) if c in (420, 440) and isinstance(v, int) else v
+    self._layovr = out
+    return out
+
+
+Model.layer_overrides = _layer_overrides
+
+
+def _named_views(self):
+    """Named views (VIEW table) and UCS records: ([view dicts], [ucs dicts]) in file order."""
+    import dwgtab
+    views = []; ucss = []
+    for h, o in self.objs.items():
+        if o.type not in (61, 63): continue
+        try:
+            e = (dwgtab.decode_view if o.type == 61 else dwgtab.decode_ucs)(o)
+        except Exception:
+            continue
+        e['handle'] = h
+        if self.version in ('AC1015', 'AC1018'): e['name'] = decode_tv(e['name'], self.codepage)
+        (views if o.type == 61 else ucss).append(e)
+    return views, ucss
+
+
+Model.named_views = lambda self: _named_views(self)[0]
+Model.ucs_list = lambda self: _named_views(self)[1]
+
+
+def _vports(self):
+    """VPORT table records (model space viewport configurations) in file order; '*Active' is the saved current model space view."""
+    import dwgtab
+    out = []
+    for h, o in self.objs.items():
+        if o.type != 65: continue
+        try: e = dwgtab.decode_vport(o)
+        except Exception: continue
+        e['handle'] = h
+        if self.version in ('AC1015', 'AC1018'): e['name'] = decode_tv(e['name'], self.codepage)
+        out.append(e)
+    return out
+
+
+Model.vports = _vports
+
+
+def _annotation_contexts(self):
+    """Annotation-scale context data: {entity handle: [{'kind': 'MTEXT'|'LEADER'|'INSERT'|'DIMENSION'|'TEXT'|'ATTRIB', 'scale': name, 'scale_handle', 'default', MTEXT: 'attachment', 'xdir', 'ins', 'width',
+    'height', 'ext_w', 'ext_h'; LEADER: 'pts', 'xdir'; INSERT: 'rotation', 'ins', 'scale_xyz'}]} (ACDB_MTEXT/LEADEROBJECTCONTEXTDATA_CLASS reached through the entity's extension dictionary). The default context equals the entity's own
+    MTEXT geometry (403 of 403 in AC1027_13), the default LEADER context its vertices (242 of 242). Other context kinds (TEXT, ALDIM, MTEXTATTRIBUTE) are not decoded."""
+    if hasattr(self, '_actx'): return self._actx
+    import dwgtab
+    cl = {c['num']: c['dxf'] for c in self.classes()}
+    out = {}
+    scales = {}
+    for h, o in self.objs.items():
+        if cl.get(o.type) == 'SCALE':
+            try: scales[h] = dwgtab.decode_scale(o)['name']
+            except Exception: pass
+    for h, o in self.objs.items():
+        kind = cl.get(o.type)
+        if kind not in ('ACDB_MTEXTOBJECTCONTEXTDATA_CLASS', 'ACDB_LEADEROBJECTCONTEXTDATA_CLASS', 'ACDB_BLKREFOBJECTCONTEXTDATA_CLASS', 'ACDB_ALDIMOBJECTCONTEXTDATA_CLASS', 'ACDB_TEXTOBJECTCONTEXTDATA_CLASS', 'ACDB_MTEXTATTRIBUTEOBJECTCONTEXTDATA_CLASS'): continue
+        try:
+            r = dwgent.start_reader(o); dwgtab.noent_common(r, o.ver)
+            ver = r.BS(); dflt = r.B()
+            if kind.startswith('ACDB_LEADER'):
+                pts = [(r.BD(), r.BD(), r.BD()) for _ in range(r.cnt(r.BL(), 3))]; xd = (r.BD(), r.BD(), r.BD())
+                extra = dict(kind='LEADER', pts=pts, xdir=xd)
+            elif kind.startswith(('ACDB_TEXT', 'ACDB_MTEXTATTRIBUTE')):
+                a0 = r.BS(); a1 = r.BD(); ins = (r.RD(), r.RD()); al = (r.RD(), r.RD())
+                extra = dict(kind='TEXT' if kind.startswith('ACDB_TEXT') else 'ATTRIB', mode=a0, angle=a1, ins=ins, align=al)
+            elif kind.startswith('ACDB_ALDIM'):
+                extra = dict(kind='DIMENSION', text_mid=(r.RD(), r.RD()))
+            elif kind.startswith('ACDB_BLKREF'):
+                rot = r.BD(); ins = (r.BD(), r.BD(), r.BD()); sc = (r.BD(), r.BD(), r.BD())
+                extra = dict(kind='INSERT', rotation=rot, ins=ins, scale_xyz=sc)
+            else:
+                att = r.BS(); xd = (r.BD(), r.BD(), r.BD()); ins = (r.BD(), r.BD(), r.BD()); w = r.BD(); hh = r.BD(); ew = r.BD(); eh = r.BD()
+                extra = dict(kind='MTEXT', attachment=att, xdir=xd, ins=ins, width=w, height=hh, ext_w=ew, ext_h=eh)
+            hs = resolve_handles(o)
+            cur = h
+            for _ in range(4): cur = resolve_handles(self.objs[cur])[0][1]  # dictionary, dictionary, extension dictionary, entity
+            sh = hs[-1][1] if hs and hs[-1][0] == 5 else None
+            out.setdefault(cur, []).append(dict(scale=scales.get(sh), scale_handle=sh, default=bool(dflt), **extra))
+        except Exception:
+            continue
+    self._actx = out
+    return out
+
+
+Model.annotation_contexts = _annotation_contexts

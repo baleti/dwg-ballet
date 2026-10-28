@@ -12,7 +12,7 @@ if not os.path.exists(TPL): TPL = os.path.expanduser('~/dwg-write/templates/blan
 class ExtentsFitTests(unittest.TestCase):
     def build(self, plot_type, scale_type):
         import dwgdoc
-        from dwgviewer import build
+        from dwgballet import build
         d = dwgdoc.Doc(open(TPL, 'rb').read())
         lh = d.add_layout('A4', paper=(297, 210), plot_type=plot_type)
         L = d.get(lh); L['scale_type'] = scale_type; L['scale_factor'] = 0.34; d.put(L)

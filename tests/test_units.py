@@ -1,6 +1,6 @@
 import math
 import unittest
-from dwgviewer import units
+from dwgballet import units
 
 
 class UnitsTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 """chk_hatch_ext.py STEM... : bounding box of every HATCH our flattener builds versus the AutoCAD dump 'ext' (matched by handle, block-space coordinates)."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build, flat
+from dwgballet import build, flat
 tot = bad = 0
 for stem in sys.argv[1:]:
     d = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % stem)))

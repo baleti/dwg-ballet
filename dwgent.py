@@ -40,6 +40,29 @@ def cmc(r, ver):
     return idx, rgb, alpha
 
 
+_ANNO_W = 'AnnotativeData'.encode('utf-16le'); _ANNO_N = b'AnnotativeData'
+
+
+def annotative_flag(eed):
+    """True/False from the 'AnnotativeData' extended data block ({ version, annotative flag }: two 1070 integers inside braces), None when the entity has none. The
+    block is written for annotative entities (flag 1); the integers are the RS values after code 70 ('F')."""
+    for app, raw in eed:
+        raw = bytes(raw)
+        for nm in (_ANNO_W, _ANNO_N):
+            i = raw.find(nm)
+            if i < 0: continue
+            p = i + len(nm); vals = []
+            while p < len(raw):
+                c = raw[p]; p += 1
+                if c == 0x46 and p + 2 <= len(raw): vals.append(int.from_bytes(raw[p:p + 2], 'little')); p += 2
+                elif c == 0x02: p += 1
+                elif c == 0x00: p += 0
+                else: break
+            if len(vals) >= 2: return bool(vals[1])
+            return None
+    return None
+
+
 def common_entity(r, ver):
     e = {}
     eed = []
@@ -49,6 +72,8 @@ def common_entity(r, ver):
         app = r.H()
         eed.append((app, r.rcs(n)))
     e['eed'] = eed
+    an = annotative_flag(eed)
+    if an is not None: e['annotative'] = an
     if r.B():
         sz = r.BLL() if ver in ('AC1024', 'AC1027', 'AC1032') else r.RL()
         r.p += sz * 8
@@ -853,12 +878,13 @@ def decode_multileader(o):
             e.update(text_loc=c['loc'], text_height=c['th'] * (c['scale'] or 1.0), arrow_size=c['arrow'], text_color=c['color'], text_rot=c['rot'],
                      text_width=c['width'], text_align=c['alignment'], text_attach=(c['left'], c['right']), text_dir=c['dir'])
         m = {}
-        if ver == 2 and not (c.get('has_block') and c.get('attach_type') == 0): r.p += 20  # 20 bits missing in block-content multileaders with attach type 0 (found by trying each field on 8 block objects: all exact)
+        if ver == 2: r.p += 20  # 20 bits not interpreted (flags 9, 9 in the samples)
         m['flags'] = r.BL(); m['type'] = r.BS(); m['color'] = _cmc3(r); m['lw'] = r.BL(); m['landing'] = r.B(); m['dogleg'] = r.B(); m['dlen'] = r.BD(); m['asize'] = r.BD()
         m['content'] = r.BS(); m['tleft'] = r.BS(); m['tright'] = r.BS(); m['tangle'] = r.BS(); m['talign'] = r.BS(); m['tcolor'] = _cmc3(r); m['tframe'] = r.B()
         m['bcolor'] = _cmc3(r); m['bscale'] = r.BD3(); m['brot'] = r.BD(); m['bconn'] = r.BS(); m['annot'] = r.B()
         if ver == 2:
-            m['narrow'] = r.BL(); m['tdneg'] = r.B(); m['v178'] = r.BS()
+            m['narrow'] = r.BL(); m['labels'] = [(r.BS(), r.BD()) for _ in range(r.cnt(m['narrow'], 4))]  # block attribute labels: index, width (text in the string stream, attdef handle in the handle stream)
+            m['tdneg'] = r.B(); m['v178'] = r.BS()
             m['v179'] = r.BS(); m['v45'] = r.BD(); m['attdir'] = r.BS(); m['bot'] = r.BS(); m['top'] = r.BS(); m['ext'] = r.B() if o.ver != 'AC1024' else 0
         e['own'] = m
         e['full'] = (r.p == expected_end(o))

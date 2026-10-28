@@ -9,7 +9,7 @@ CORPUS = os.path.expanduser('~/dwg-research/corpus')
 @unittest.skipUnless(glob.glob(os.path.join(CORPUS, 'AC1018_42*.dwg')) and glob.glob(os.path.join(CORPUS, 'AC1015_56*.dwg')), 'corpus missing')
 class XrefTests(unittest.TestCase):
     def test_xref_found_adds_rows(self):
-        from dwgviewer import build
+        from dwgballet import build
         host = glob.glob(os.path.join(CORPUS, 'AC1018_42*.dwg'))[0]; child = glob.glob(os.path.join(CORPUS, 'AC1015_56*.dwg'))[0]
         with tempfile.TemporaryDirectory() as td:
             h = os.path.join(td, 'host.dwg'); shutil.copy(host, h)

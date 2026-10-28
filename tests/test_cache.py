@@ -1,7 +1,7 @@
 import os, sys, gzip, tempfile, unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['DWG_VIEW_CACHE'] = tempfile.mkdtemp()
-from dwgviewer import cache
+from dwgballet import cache
 
 
 class T(unittest.TestCase):

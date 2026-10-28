@@ -10,7 +10,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CODE = r'''
 import sys, time, json
 sys.path.insert(0, %r)
-from dwgviewer import build
+from dwgballet import build
 t = time.time(); d = build.Doc(sys.argv[1]); pt = time.time() - t
 tot = er = 0; mxs = 0
 for i in range(len(d.lays)):

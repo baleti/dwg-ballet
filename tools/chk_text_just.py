@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """chk_text_just.py STEM... : TEXT box (AutoCAD ext) relative to the alignment point for every justification other than left/baseline; compare with the offsets web/app.js uses."""
-import sys,json,collections; sys.path.insert(0,'/home/user1/dwg-viewer')
-from dwgviewer import build
+import sys,json,collections; sys.path.insert(0,'/home/user1/dwg-ballet')
+from dwgballet import build
 res=collections.defaultdict(list)
 for stem in sys.argv[1:]:
     d=json.load(open('/home/user1/dwg-research/oracle-out/%s/dump.json'%stem))

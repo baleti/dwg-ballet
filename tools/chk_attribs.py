@@ -2,7 +2,7 @@
 """chk_attribs.py STEM... : block attributes: number of ATTRIBs per INSERT and their text/insertion points versus the AutoCAD dump (INSERT.attrs)."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 tot = cnt_ok = txt_ok = pos_ok = n_att = 0
 for stem in sys.argv[1:]:
     d = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % stem)))

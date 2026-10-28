@@ -3,7 +3,7 @@
 import sys, os, json, math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dwgacis
-from dwgviewer import build
+from dwgballet import build
 n = ok = 0
 for stem in sys.argv[1:]:
     d = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % stem)))

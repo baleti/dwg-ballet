@@ -15,7 +15,7 @@ WORK = r'''
 import sys, os, json, glob
 sys.path.insert(0, %r); sys.path.insert(0, %r)
 import vcompare
-from dwgviewer import build
+from dwgballet import build
 path, id_ = sys.argv[1], sys.argv[2]
 d = build.Doc(path)
 names = {os.path.basename(p)[:-len('.fixed.pdf')] for p in glob.glob(os.path.join(%r, id_, 'plots', '*.fixed.pdf'))}

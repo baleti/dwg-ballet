@@ -37,7 +37,7 @@ def decode_layer(o):
     name = rd()
     xref_part(r, o)
     fl = r.BS()
-    col = cmc_full(r, rd)
+    col = cmc_full(r, rd) if o.ver != 'AC1015' else (r.BS(), None, 0)  # R2000: plain BS colour index
     idx, rgb, cb = col[0], col[1], col[2]
     method = (rgb >> 24) & 0xFF if rgb is not None else 0
     aci = idx; true = None
@@ -81,6 +81,14 @@ def decode_ltype(o):
         # complex linetype text area: 256 bytes (R2004) / 512 bytes (R2007+), found from the residual bit count
         nb = 256 if o.ver == 'AC1018' else 512
         text_area = r.rcs(nb)
+        raw = bytes(text_area)
+        if o.ver == 'AC1018':
+            parts = [decode_tv(p.decode('latin1'), getattr(o, 'codepage', 30)) for p in raw.split(b'\0') if p]
+        else:
+            parts = [t for t in raw.decode('utf-16le', 'replace').split('\0') if t]
+        it = iter(parts)
+        for dsh in dashes:
+            if dsh['flags'] & 2: dsh['text'] = next(it, '')
     return dict(kind='LTYPE', name=name, description=desc, pattern_length=length, alignment=align, dashes=dashes, text_area=text_area)
 
 
@@ -113,6 +121,40 @@ def decode_block_header(o):
                 units=units, explodable=explodable, scaling=scaling)
 
 
+def decode_view(o):
+    """VIEW table record (type 61): name, view height/width/centre, target, direction, twist, lens length, clip distances (equal to AutoCAD's named views;
+    the mode, render and UCS-association bits after the clip distances are not decoded)."""
+    r = dwgent.start_reader(o)
+    noent_common(r, o.ver)
+    rd = _rd(o, r)
+    name = rd()
+    xref_part(r, o)
+    h = r.BD(); w = r.BD(); cx = r.RD(); cy = r.RD()
+    return dict(kind='VIEW', name=name, height=h, width=w, center=(cx, cy), target=r.BD3(), direction=r.BD3(), twist=r.BD(), lens=r.BD(), front_clip=r.BD(), back_clip=r.BD())
+
+
+def decode_ucs(o):
+    """UCS table record (type 63): name, origin, X axis, Y axis."""
+    r = dwgent.start_reader(o)
+    noent_common(r, o.ver)
+    rd = _rd(o, r)
+    name = rd()
+    xref_part(r, o)
+    return dict(kind='UCS', name=name, origin=r.BD3(), xaxis=r.BD3(), yaxis=r.BD3())
+
+
+def decode_vport(o):
+    """VPORT table record (type 65, model space viewport configuration; '*Active' is the last model space view): view height, width, centre, target,
+    direction, twist, lens length, clip distances. Equal to AutoCAD's viewports_table; the grid, snap and corner fields after them are not decoded."""
+    r = dwgent.start_reader(o)
+    noent_common(r, o.ver)
+    rd = _rd(o, r)
+    name = rd()
+    xref_part(r, o)
+    h = r.BD(); w = r.BD(); cx = r.RD(); cy = r.RD()
+    return dict(kind='VPORT', name=name, height=h, width=w, aspect=(w / h if h else 0.0), center=(cx, cy), target=r.BD3(), direction=r.BD3(), twist=r.BD(), lens=r.BD(), front_clip=r.BD(), back_clip=r.BD())
+
+
 def decode_dimstyle(o):
     """DIMSTYLE table record (type 69): all dimension variables. Order as in the header variable list, validated against the AutoCAD dump."""
     r = dwgent.start_reader(o)
@@ -123,6 +165,14 @@ def decode_dimstyle(o):
     new = o.ver != 'AC1015'
     wide = o.ver not in ('AC1015', 'AC1018')
     v = dict(kind='DIMSTYLE', name=name)
+    try:
+        import dwgmodel
+        hs = [h for c, h in dwgmodel.owner_and_layer(o)]
+        k = 8 if wide else 5
+        if len(hs) >= k + 1:
+            ks = ('DIMTXSTY', 'DIMLDRBLK', 'DIMBLK', 'DIMBLK1', 'DIMBLK2') + (('DIMLTYPE', 'DIMLTEX1', 'DIMLTEX2') if wide else ())
+            v['handles'] = dict(zip(ks, hs[-k:]))
+    except Exception: pass
     v['DIMPOST'] = rd(); v['DIMAPOST'] = rd()
     for k in ('DIMSCALE', 'DIMASZ', 'DIMEXO', 'DIMDLI', 'DIMEXE', 'DIMRND', 'DIMDLE', 'DIMTP', 'DIMTM'): v[k] = r.BD()
     if wide:
@@ -139,7 +189,12 @@ def decode_dimstyle(o):
     for k in ('DIMTOLJ', 'DIMTZIN', 'DIMALTZ', 'DIMALTTZ'): v[k] = r.BS()
     v['DIMUPT'] = r.B(); v['DIMATFIT'] = r.BS()
     if wide:
-        v['DIMFXLON'] = r.B()  # R2007+: a further 134 bits of newer variables follow (not decoded; DIMLWD/DIMLWE are among them)
+        v['DIMFXLON'] = r.B()
+        try:
+            if o.ver not in ('AC1021',):
+                v['DIMTXTDIRECTION'] = r.B(); v['DIMALTMZF'] = r.BD(); v['DIMALTMZS'] = rd(); v['DIMMZF'] = r.BD(); v['DIMMZS'] = rd()
+            v['DIMLWD'] = r.BS(); v['DIMLWE'] = r.BS()
+        except Exception: pass
         return v
     v['DIMLWD'] = r.BS(); v['DIMLWE'] = r.BS()
     return v
@@ -167,6 +222,42 @@ def decode_scale(o):
     rd = _rd(o, r)
     flag = r.BS(); name = rd(); paper = r.BD(); drawing = r.BD(); unit = r.B()
     return dict(kind='SCALE', name=name, paper=paper, drawing=drawing, unit_scale=unit)
+
+
+def decode_mlstyle(o):
+    """MLINESTYLE (type 73): name, description, BS flags (1 fill, 2 miter joints, 16/32 start/end square caps, 64/128 inner arcs, 256/512 round caps), fill CMC,
+    start/end angle, RC element count, per element BD offset, CMC colour, linetype (BS index before R2018, handle stream later)."""
+    r = dwgent.start_reader(o)
+    noent_common(r, o.ver)
+    rd = _rd(o, r)
+    name = rd(); desc = rd(); flags = r.BS(); fill = cmc_full(r, rd) if o.ver != 'AC1015' else (r.BS(), 0, 0, None, None); a0 = r.BD(); a1 = r.BD(); n = r.RC()
+    els = []
+    for _ in range(n):
+        off = r.BD(); col = cmc_full(r, rd) if o.ver != 'AC1015' else (r.BS(), 0, 0, None, None); lt = r.BS() if o.ver != 'AC1032' else None
+        m = (col[1] >> 24) & 0xFF if col[1] else 0
+        els.append(dict(offset=off, color=256 if m == 0xC0 else 257 if m == 0xC1 else (col[1] & 0xFF) if m == 0xC3 else col[0], rgb=col[1] & 0xFFFFFF if m == 0xC2 else None, ltype_index=lt))
+    return dict(kind='MLINESTYLE', name=name, description=desc, flags=flags, fill_color=fill[0], start_angle=a0, end_angle=a1, elements=els)
+
+
+def decode_mleaderstyle(o):
+    """MLEADERSTYLE (class, R2010+): version BS, content type, draw orders, max leader points, first/second segment angle, leader type, line colour, lineweight, landing/dogleg,
+    description, arrow size, default text, text attachments and alignment, text colour/height/frame, block fields, scale, annotative flag, break gap, R2010 attach
+    directions. Handles (line type, arrow block, text style, content block) are in the handle stream and not resolved here. Field order from the DXF group order,
+    checked against AutoCAD (chk_mleaderstyle_dxf.py)."""
+    r = dwgent.start_reader(o)
+    noent_common(r, o.ver)
+    rd = _rd(o, r)
+    d = dict(kind='MLEADERSTYLE')
+    d['version'] = r.BS(); d['content_type'] = r.BS(); d['draw_mleader_order'] = r.BS(); d['draw_leader_order'] = r.BS(); d['max_points'] = r.BL()
+    d['first_angle'] = r.BD(); d['second_angle'] = r.BD(); d['leader_type'] = r.BS()
+    d['line_color'] = cmc_full(r, rd)[:3]; d['line_weight'] = r.BL()
+    d['landing'] = r.B(); d['landing_gap'] = r.BD(); d['dogleg'] = r.B(); d['dogleg_length'] = r.BD()
+    d['description'] = rd(); d['arrow_size'] = r.BD(); d['default_text'] = rd()
+    d['text_left_attach'] = r.BS(); d['text_right_attach'] = r.BS(); d['text_angle_type'] = r.BS(); d['text_align'] = r.BS()
+    d['text_color'] = cmc_full(r, rd)[:3]; d['text_height'] = r.BD(); d['text_frame'] = r.B(); d['text_always_left'] = r.B(); d['align_space'] = r.BD()
+    d['block_color'] = cmc_full(r, rd)[:3]; d['block_scale'] = r.BD3(); d['block_scale_on'] = r.B(); d['block_rotation'] = r.BD(); d['block_rotation_on'] = r.B()
+    d['block_connection'] = r.BS(); d['scale'] = r.BD(); d['annotative'] = r.B(); d['overwrite'] = r.B(); d['break_gap'] = r.BD()
+    return d
 
 
 def decode_dictvar(o):

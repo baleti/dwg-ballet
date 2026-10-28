@@ -24,7 +24,35 @@ def header_vars(buf, info, ver):
     if ver not in ('AC1018', 'AC1021', 'AC1024', 'AC1027', 'AC1032'): return {}
     h = dwgload.section(buf, info, 'AcDb:Header')
     start = {'AC1018': 160, 'AC1021': 192, 'AC1024': 224, 'AC1027': 227, 'AC1032': 227}[ver]  # after sentinel, sizes (and a 3-bit field from R2013)
-    return decode_header(h, ver, start)
+    v = decode_header(h, ver, start)
+    if ver != 'AC1018':
+        try: v.update(_wide_handles(h, ver))
+        except Exception: pass
+    return v
+
+
+_WIDE_HNAMES = ('CLAYER', 'TEXTSTYLE', 'CELTYPE', 'CMATERIAL', 'DIMSTYLE', 'CMLSTYLE', 'PUCSNAME', 'PUCSORTHOREF', 'PUCSBASE', 'UCSNAME', 'UCSORTHOREF',
+                'UCSBASE', 'DIMTXSTY', 'DIMLDRBLK', 'DIMBLK', 'DIMBLK1', 'DIMBLK2', 'DIMLTYPE', 'DIMLTEX1', 'DIMLTEX2', 'BLOCK_CONTROL', 'LAYER_CONTROL',
+                'STYLE_CONTROL', 'LTYPE_CONTROL', 'VIEW_CONTROL', 'UCS_CONTROL', 'VPORT_CONTROL', 'APPID_CONTROL', 'DIMSTYLE_CONTROL', 'DICT_GROUP',
+                'DICT_MLINESTYLE', 'DICT_NAMED_OBJECTS', 'DICT_LAYOUTS', 'DICT_PLOTSETTINGS', 'DICT_PLOTSTYLES', 'DICT_MATERIALS', 'DICT_COLORS',
+                'DICT_VISUALSTYLE', 'DICT_UNKNOWN', 'PAPER_SPACE_BLOCK', 'MODEL_SPACE_BLOCK', 'BYLAYER_LTYPE', 'BYBLOCK_LTYPE', 'CONTINUOUS_LTYPE',
+                'INTERFEREOBJVS', 'INTERFEREVPVS')
+
+
+def _wide_handles(h, ver):
+    """R2007+ handle stream of the header (starts about 35 bits before 'bit size' after the data start; located by the first six references being
+    absolute and non-zero). Returns {name: handle} for the references of _WIDE_HNAMES (validated vs AutoCAD's header handles)."""
+    if ver == 'AC1021': base, bs = 192, int.from_bytes(h[20:24], 'little')
+    else: base, bs = 224, int.from_bytes(h[24:28], 'little')
+    for off in range(-60, 12):
+        r = B.Bits(h, base + bs + off)
+        try:
+            hs = [r.H() for _ in range(len(_WIDE_HNAMES))]
+        except IndexError: continue
+        if ver in ('AC1021', 'AC1024'): hs = hs[:38] + [(5, 0)] + hs[38:]  # no DICT_UNKNOWN slot before R2013
+        if all(c == 5 and 0 < x < 1 << 64 for c, x in hs[:5]) and all(c == 5 for c, x in hs[:6]):
+            return {k: x for k, (c, x) in zip(_WIDE_HNAMES, hs) if x}
+    return {}
 
 
 def decode_header(h, ver, start=20 * 8):
@@ -51,7 +79,14 @@ def _decode(h, ver, start, v):
     if new: r.B()  # undocumented flag, R2004 only
     for k in ('USRTIMER', 'SKPOLY', 'ANGDIR', 'SPLFRAME', 'MIRRTEXT', 'WORLDVIEW', 'TILEMODE', 'PLIMCHECK', 'VISRETAIN', 'DISPSILH', 'PELLIPSE'):
         v[k] = r.B()
-    if ver == 'AC1015': r.p += 24  # R2000 stores 24 more bits of flags / small codes here (found by locating the PROXYGRAPHICS/TREEDEPTH=3020 pair)
+    if ver == 'AC1015':
+        # R2000 stores 8..24 more bits of flags / small codes here (the amount differs per file): locate the PROXYGRAPHICS / TREEDEPTH pair (TREEDEPTH is 3020 by default)
+        base = r.p; r.p = base + 24
+        for k in range(0, 49):
+            q = B.Bits(h, base + k)
+            try:
+                if q.BS() in (0, 1) and q.BS() == 3020 and 1 <= q.BS() <= 5: r.p = base + k; break
+            except Exception: pass
     for k in ('PROXYGRAPHICS', 'TREEDEPTH', 'LUNITS', 'LUPREC', 'AUNITS', 'AUPREC', 'ATTMODE', 'PDMODE'):
         v[k] = r.BS()
     if new: r.BL(); r.BL(); r.BL()
@@ -78,13 +113,13 @@ def _decode(h, ver, start, v):
     v['DIMSTYLE'] = H(); v['CMLSTYLE'] = H()
     v['PSVPSCALE'] = r.BD()
     v['PINSBASE'] = r.BD3(); v['PEXTMIN'] = r.BD3(); v['PEXTMAX'] = r.BD3(); v['PLIMMIN'] = r.RD2(); v['PLIMMAX'] = r.RD2(); v['PELEVATION'] = r.BD()
-    v['PUCSORG'] = r.BD3(); r.BD3(); r.BD3()  # origin, X axis, Y axis
+    v['PUCSORG'] = r.BD3(); v['PUCSXDIR'] = r.BD3(); v['PUCSYDIR'] = r.BD3()  # origin, X axis, Y axis
     for k in ('PUCSNAME', 'PUCSORTHOREF'): v[k] = H()
     v['PUCSORTHOVIEW'] = r.BS(); v['PUCSBASE'] = H()
     for _ in range(6): r.BD3()  # PUCSORGTOP / BOTTOM / LEFT / RIGHT / FRONT / BACK
     v['INSBASE'] = r.BD3(); v['EXTMIN'] = r.BD3(); v['EXTMAX'] = r.BD3(); v['LIMMIN'] = r.RD2(); v['LIMMAX'] = r.RD2()
     v['ELEVATION'] = r.BD()
-    v['UCSORG'] = r.BD3(); r.BD3(); r.BD3()
+    v['UCSORG'] = r.BD3(); v['UCSXDIR'] = r.BD3(); v['UCSYDIR'] = r.BD3()
     v['UCSNAME'] = H()
     v['UCSORTHOREF'] = H(); v['UCSORTHOVIEW'] = r.BS(); v['UCSBASE'] = H()
     for _ in range(6): r.BD3()

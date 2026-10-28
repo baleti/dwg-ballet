@@ -2,7 +2,7 @@
 """chk_extents.py STEM... : model-space drawn extents (no twist) versus the AutoCAD header EXTMIN/EXTMAX (stale or unset values show as large differences)."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 for stem in sys.argv[1:]:
     d = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % stem)))
     lo, hi = d['header'].get('Extmin'), d['header'].get('Extmax')

@@ -1,2 +1,2 @@
-from .cli import main
+from dwgballet.cli import main
 main()

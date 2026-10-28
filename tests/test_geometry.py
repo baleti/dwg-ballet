@@ -2,7 +2,7 @@
 import math, os, sys, unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dwgscene
-from dwgviewer import flat
+from dwgballet import flat
 
 
 class Splines(unittest.TestCase):
@@ -45,7 +45,7 @@ class Matrices(unittest.TestCase):
 
 class Annotation(unittest.TestCase):
     def test_dstyle_overrides(self):
-        from dwgviewer import flat
+        from dwgballet import flat
         b = (b'\x00\x06\x00D\x00S\x00T\x00Y\x00L\x00E\x00\x02\x00F(\x00(\x00\x00\x00\x00\x00\x004@F\x93\x00(\x00\x00\x00\x00\x00\x00\xf0?FM\x00F\x00\x00\x02\x01')
         self.assertEqual(flat.dstyle_overrides([((5, 84), b)]), {40: 20.0, 147: 1.0, 77: 0})
         self.assertEqual(flat.dstyle_overrides([]), {})

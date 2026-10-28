@@ -118,7 +118,7 @@ function initCats() {
   }
 }
 // named layer states (like AutoCAD's Layer States Manager), kept per drawing in the browser's localStorage
-function lsKey() { return 'dwgviewer.layerstates.' + (meta ? meta.file : ''); }
+function lsKey() { return 'dwgballet.layerstates.' + (meta ? meta.file : ''); }
 function lsLoad() { try { return JSON.parse(localStorage.getItem(lsKey()) || '{}'); } catch (e) { return {}; } }
 function lsStore(o) { try { localStorage.setItem(lsKey(), JSON.stringify(o)); } catch (e) {} }
 function lsRefresh(sel) {

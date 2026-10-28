@@ -3,7 +3,7 @@
 import sys, os, json
 from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build, flat
+from dwgballet import build, flat
 
 KINDS = ('INSERT', 'LINE', 'ARC', 'CIRCLE', 'ELLIPSE', 'SPLINE', 'LWPOLYLINE', 'POLYLINE2D', 'POLYLINE3D', 'SOLID')
 tot = defaultdict(lambda: [0, 0]); worst = []

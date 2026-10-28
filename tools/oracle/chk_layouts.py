@@ -9,6 +9,9 @@ m = dwgmodel.Model(open(p, 'rb').read())
 L = m.layouts() if callable(m.layouts) else m.layouts
 ours = {l['name']: l for l in L}
 def close(a, b): return abs(a - b) <= 1e-6 * max(1.0, abs(a), abs(b))
+bvp = {}
+for b in d.get('blocks', []):
+    if b.get('layout') or str(b.get('name', '')).lower().startswith('*paper_space'): bvp[b.get('layout_name')] = sum(1 for e in b.get('entities', []) if e['t'] == 'VIEWPORT')
 res = collections.Counter(); first = {}
 def note(f, name, a, b): res[f] += 1; first.setdefault(f, (name, a, b))
 PT = {'Display': 0, 'Extents': 1, 'Limits': 2, 'View': 3, 'Window': 4, 'Layout': 5}
@@ -21,5 +24,8 @@ for l in d['layouts']:
     if o['style_sheet'].lower() != l['CurrentStyleSheet'].lower(): note('style_sheet', l['LayoutName'], o['style_sheet'], l['CurrentStyleSheet'])
     if (o['rotation'] if 'rotation' in o else None) is not None and 'Degrees%03d' % (o['rotation'] * 90) != l['PlotRotation']: note('rotation', l['LayoutName'], o['rotation'], l['PlotRotation'])
     if not all(close(a, b) for a, b in zip(o['plot_origin'], l.get('PlotOrigin', o['plot_origin']))): note('origin', l['LayoutName'], o['plot_origin'], l.get('PlotOrigin'))
-    if len(o['viewports']) != len(l.get('viewport_handles', o['viewports'])): note('nviewports', l['LayoutName'], len(o['viewports']), len(l['viewport_handles']))
+    # the dump's viewport_handles is empty for layouts after the first one with viewports: count the VIEWPORT entities of the layout's block instead
+    nvp = bvp.get(l['LayoutName'])
+    if nvp is None or d['header'].get('original_file_version_int', 99) > 23: nvp = len(l.get('viewport_handles', o['viewports']))  # R2004+ layouts store their viewport list: the dump's list is the truth there
+    if len(o['viewports']) != nvp: note('nviewports', l['LayoutName'], len(o['viewports']), nvp)
 print(json.dumps({'res': dict(res), 'first': first}))

@@ -7,7 +7,7 @@ import zlib
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import ctb
+from dwgballet import ctb
 
 
 HEADER = b'PIAFILEVERSION_2.0,CTBVER1,compress\npmzlibcodec' + b'\x00' * 4

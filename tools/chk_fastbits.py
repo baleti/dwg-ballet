@@ -3,7 +3,7 @@
 import sys, os, time, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dwgscene
-from dwgviewer import fastbits
+from dwgballet import fastbits
 
 
 def decode(path):

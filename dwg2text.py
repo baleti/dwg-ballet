@@ -85,7 +85,7 @@ def extract(path):
             res['errors'].append('%s: %r' % (name, ex)); res['status'] = 'partial'; return default
     if ver in ('AC1009', 'AC1012', 'AC1014'):
         res['summary'] = {}; res['app'] = []
-        res['errors'].append('R12/R13/R14 reader is partial: no 3D polylines/meshes, proxy entities, MLINE, header variables, plot settings or object properties'); res['status'] = 'partial'
+        res['errors'].append('R12/R13/R14 reader is partial: no MLINE, header variables (R12: LTSCALE, TEXTSIZE, PDMODE only), plot settings or object properties'); res['status'] = 'partial'
     elif ver != 'AC1015':
         res['summary'] = stage('summary', lambda: summary_info(buf, m._info, ver, m.codepage), {})
         res['app'] = stage('app', lambda: app_info(buf, m._info), [])
@@ -113,7 +113,7 @@ def extract(path):
     def ents():
         ins_name = {}
         for blk, e in m.entities(TEXT_TYPES if TEXT_ONLY else None):
-            if e['kind'] == 'INSERT': ins_name[e['handle']] = (e.get('block_ref') or '').split('~')[0]
+            if e['kind'] == 'INSERT': ins_name[e['handle']] = (e.get('block_true_name') or e.get('block_ref') or '').split('~')[0]
         for blk, e in m.entities(TEXT_TYPES if TEXT_ONLY else None):
             k = e['kind']; counts[k] += 1
             if k == 'ACAD_TABLE' and e.get('block_ref'): table_ents.append((blk, e))
@@ -178,7 +178,7 @@ def extract(path):
     res['xrefs'] = stage('xrefs', xr, []) if ver not in ('AC1009', 'AC1012', 'AC1014') else []
     def imgs():
         seen = {}
-        for blk, e in m.entities(TEXT_TYPES if TEXT_ONLY else None):
+        for blk, e in m.entities(frozenset()):  # IMAGE is class based (type >= 500): no built-in decoder needed
             if e['kind'] == 'IMAGE' and e.get('image_path'): seen[e['image_path']] = seen.get(e['image_path'], 0) + 1
         return [dict(path=p_, count=n_) for p_, n_ in seen.items()]
     res['images'] = stage('images', imgs, [])

@@ -1,7 +1,7 @@
 import os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import clip
+from dwgballet import clip
 
 SQ = [(0, 0), (10, 0), (10, 10), (0, 10)]
 

@@ -14,13 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # the helpers tested here uses them. Supply only missing imports, temporarily,
 # leaving real modules available when running in a complete checkout.
 _missing = {}
-for _name in ('dwgmodel', 'dwgent', 'dwgviewer.annoctx'):
+for _name in ('dwgmodel', 'dwgent', 'dwgballet.annoctx'):
     if _name not in sys.modules and importlib.util.find_spec(_name) is None:
         _missing[_name] = types.ModuleType(_name)
-if 'dwgviewer.annoctx' in _missing:
-    _missing['dwgviewer.annoctx'].AnnoContexts = object
+if 'dwgballet.annoctx' in _missing:
+    _missing['dwgballet.annoctx'].AnnoContexts = object
 with patch.dict(sys.modules, _missing):
-    from dwgviewer import flat
+    from dwgballet import flat
 
 
 class SaneTests(unittest.TestCase):
@@ -201,6 +201,6 @@ if __name__ == '__main__':
 
 class DstyleHandleTest(unittest.TestCase):
     def test_handle_value_does_not_stop_parsing(self):
-        from dwgviewer import flat
+        from dwgballet import flat
         b = b'\x00\x06\x00D\x00S\x00T\x00Y\x00L\x00E\x00\x02\x00FM\x00F\x00\x00FT\x01\x05\x00\x00\x00\x00\x00\x00c\xa0F(\x00(\x00\x00\x00\x00\x00\x00\xf0?\x02\x01'
         self.assertEqual(flat.dstyle_overrides([(5, b)]), {77: 0, 340: 25504, 40: 1.0})

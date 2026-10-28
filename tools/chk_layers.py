@@ -2,7 +2,7 @@
 """chk_layers.py STEM... : layer table of the viewer (colour, on/off, frozen, locked, plot, lineweight, linetype) versus the AutoCAD dump."""
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dwgviewer import build
+from dwgballet import build
 tot = {}
 for st in sys.argv[1:]:
     dump = json.load(open(os.path.expanduser('~/dwg-research/oracle-out/%s/dump.json' % st)))

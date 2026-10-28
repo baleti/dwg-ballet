@@ -249,21 +249,26 @@ class Model12:
             out.append(dict(name=name, description=desc, pattern_length=plen, dashes=dashes))
         return out
 
+
     def _read_styles(self):
         out = []
         for e in _table(self._buf, 2):
             name = e[1:33].split(b'\0')[0].decode('latin1')
             h, wf, ob = struct.unpack_from('<3d', e, 35)
             font = e[68:132].split(b'\0')[0].decode('latin1')
-            out.append(dict(name=name, height=h, width=wf, oblique=ob, gen=e[59], font=font))
+            out.append(dict(name=name, height=h, width=wf, oblique=ob, gen=e[59], font=font, fixed_height=h, width_factor=wf, bigfont=''))
         return out
 
-    def ltypes(self): return {l['name']: l for l in self._lt}
+    def ltypes(self):
+        d = {l['name']: l for l in self._lt}
+        for n in ('ByBlock', 'ByLayer'):  # built in, not stored in R12 files
+            d.setdefault(n, dict(name=n, description='', pattern_length=0.0, dashes=[]))
+        return d
 
     def styles(self): return {s['name']: s for s in self._st}
 
     def layer_table(self):
-        return {l['name']: dict(color=l['color'], off=l['off'], frozen=bool(l['flags'] & 1), ltype=(self._lt[l['ltype']]['name'] if l['ltype'] < len(self._lt) else None), lineweight_mm=None, true_color=None) for l in self._layers}
+        return {l['name']: dict(name=l['name'], locked=bool(l['flags'] & 4), plot=l['name'].upper() != 'DEFPOINTS', color=l['color'], off=l['off'], frozen=bool(l['flags'] & 1), ltype=(self._lt[l['ltype']]['name'] if l['ltype'] < len(self._lt) else None), lineweight_mm=None, true_color=None) for l in self._layers if not l['flags'] & 128}  # flag 128: erased entry
 
     def effective(self, e):
         lt = self.layer_table().get(e.get('layer'), {})
@@ -355,12 +360,27 @@ class Model12:
     def classes(self): return []
     def proxy_texts(self): return []
     def header(self):
-        # only the variables found at fixed offsets so far (equal to the AutoCAD dump on both dumped files)
-        return dict(LTSCALE=struct.unpack_from('<d', self._buf, 306)[0], TEXTSIZE=struct.unpack_from('<d', self._buf, 314)[0])
+        # variables found at fixed byte offsets (equal to AutoCAD's DXF HEADER on both dumped files; the extents are as stored, AutoCAD recomputes them)
+        u = lambda o: struct.unpack_from('<d', self._buf, o)[0]
+        h = dict(LTSCALE=u(306), TEXTSIZE=u(314), PDMODE=struct.unpack_from('<h', self._buf, 861)[0], DIMSCALE=u(419), DIMASZ=u(427), DIMEXO=u(435), DIMDLI=u(443), DIMEXE=u(451), DIMTXT=u(475), DIMCEN=u(483), FILLETRAD=u(386), DIMGAP=u(1707),
+                 LIMMIN=(u(168), u(176)), LIMMAX=(u(184), u(192)), EXTMIN=(u(120), u(128), 0.0), EXTMAX=(u(144), u(152), 0.0))
+        return h
+
     def layouts(self):
-        out = [dict(name='Model', block=self.model, block_name='*Model_Space', paper=(0.0, 0.0), paper_size='', viewports=[])]
+        h = self.header()
+        lim = dict(limmin=tuple(h['LIMMIN']), limmax=tuple(h['LIMMAX']), style_sheet='', plot_origin=(0.0, 0.0))
+        out = [dict(name='Model', block=self.model, block_name='*Model_Space', paper=(0.0, 0.0), paper_size='', viewports=[], tab_order=0, **lim)]
         vps = self._viewports()
         if vps:  # the first viewport (id 1) is the overall paper-space viewport and covers the sheet
             v = vps[0]
-            out.append(dict(name='Layout1', block=None, block_name='*Paper_Space', paper=(v['width'], v['height']), origin=(v['center'][0] - v['width'] / 2, v['center'][1] - v['height'] / 2), paper_size='', viewports=list(range(1, len(vps) + 1))))
+            out.append(dict(name='Layout1', block=None, block_name='*Paper_Space', paper=(v['width'], v['height']), origin=(v['center'][0] - v['width'] / 2, v['center'][1] - v['height'] / 2), paper_size='', viewports=list(range(1, len(vps) + 1)), tab_order=1, **lim))
         return out
+
+
+def _empty_table_api(cls):
+    """R12-R14 files carry none of the newer table objects: the accessors exist and return empty results so consumers need no version checks."""
+    for n in ('mlstyles', 'mleaderstyles', 'scales', 'dictvars', 'layer_overrides', 'layer_states', 'dictionaries'):
+        setattr(cls, n, lambda self: {})
+    for n in ('named_views', 'ucs_list', 'vports'):
+        setattr(cls, n, lambda self: [])
+_empty_table_api(Model12)
